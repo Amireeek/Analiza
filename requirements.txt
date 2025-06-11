@@ -1,5 +1,5 @@
 streamlit
-requests
+httpx
 trafilatura
 google-generativeai
 google-api-python-client
