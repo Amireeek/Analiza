@@ -1,7 +1,7 @@
-# app.py - wersja z profesjonalnym Scraping API (ScrapingBee)
+# app.py - wersja finalna z listą źródeł i bez chińskich znaków
 
 import streamlit as st
-import requests  # Wracamy do requests, bo jest prostsze do tego API
+import requests
 from trafilatura import extract
 import google.generativeai as genai
 from googleapiclient.discovery import build
@@ -11,63 +11,46 @@ st.set_page_config(page_title="Analizator SERP z Gemini", page_icon="💡", layo
 st.title("💡 Analizator SERP z AI")
 st.markdown("Narzędzie do głębokiej analizy treści z TOP 10 wyników Google przy użyciu Gemini 1.5 Pro.")
 
-# --- Obsługa Kluczy API (Z DODATKOWYM KLUCZEM) ---
+# --- Obsługa Kluczy API (bez zmian) ---
 try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     SEARCH_API_KEY = st.secrets["SEARCH_API_KEY"]
     SEARCH_ENGINE_ID = st.secrets["SEARCH_ENGINE_ID"]
-    # NOWY KLUCZ
     SCRAPINGBEE_API_KEY = st.secrets["SCRAPINGBEE_API_KEY"]
-    
     genai.configure(api_key=GEMINI_API_KEY)
 except (KeyError, FileNotFoundError):
-    st.error("Błąd: Klucze API nie zostały znalezione. Upewnij się, że skonfigurowałeś WSZYSTKIE 4 sekrety w Streamlit (w tym SCRAPINGBEE_API_KEY).")
+    st.error("Błąd: Klucze API nie zostały znalezione. Upewnij się, że skonfigurowałeś WSZYSTKIE 4 sekrety w Streamlit.")
     st.stop()
 
-# --- Funkcje Backendowe (Z AKTUALIZACJĄ OSTATECZNĄ) ---
+# --- Funkcje Backendowe (bez zmian) ---
 @st.cache_data
 def get_top_10_results(api_key, cse_id, query):
     service = build("customsearch", "v1", developerKey=api_key)
     res = service.cse().list(q=query, cx=cse_id, num=10, gl='pl', hl='pl').execute()
     return res.get('items', [])
 
-# --- OSTATECZNA WERSJA FUNKCJI SCRAPINGU Z UŻYCIEM SCRAPINGBEE ---
 @st.cache_data
 def scrape_and_clean_content(url_to_scrape):
     try:
-        # Budujemy zapytanie do API ScrapingBee
         response = requests.get(
             url='https://app.scrapingbee.com/api/v1/',
-            params={
-                'api_key': SCRAPINGBEE_API_KEY,
-                'url': url_to_scrape,
-                'render_js': 'false',  # Ustaw na 'true' jeśli strona wymaga JS, ale zużywa więcej kredytów
-                'premium_proxy': 'true', # Używa lepszych, rezydencjalnych proxy
-            },
-            timeout=60  # Dajemy więcej czasu, bo proces jest bardziej złożony
+            params={'api_key': SCRAPINGBEE_API_KEY, 'url': url_to_scrape, 'premium_proxy': 'true'},
+            timeout=60
         )
-        # Sprawdzamy, czy samo API ScrapingBee nie zwróciło błędu
         response.raise_for_status()
-        
-        # Jeśli wszystko jest OK, przekazujemy zwróconą treść HTML do trafilatura
         return extract(response.text, include_comments=False, include_tables=False)
-        
     except requests.exceptions.RequestException as e:
         st.warning(f"Nie udało się pobrać treści z {url_to_scrape} przez ScrapingBee: {e}")
         return None
-    except Exception as e:
-        st.warning(f"Wystąpił inny błąd podczas przetwarzania {url_to_scrape}: {e}")
-        return None
 
-# --- Pozostałe funkcje (bez zmian) ---
 def analyze_content_with_gemini(all_content, keyword_phrase):
     if not all_content: return "Brak treści do analizy."
     
     prompt = f"""
     Jesteś ekspertem SEO i analitykiem content marketingu. Przeanalizuj zagregowaną treść z czołowych artykułów dla frazy "{keyword_phrase}" i na tej podstawie:
-    1.  **Zidentyfikuj kluczowe punkty wspólne:** Wypunktuj tematy, które powtarzają się w większości tekstów.
-    2.  **Wskaż unikalne elementy:** Wypunktuj ciekawe informacje, które pojawiły się tylko w niektórych źródłach.
-    3.  **Sformułuj wnioski i rekomendacje:** Stwórz listę praktycznych porad dla kogoś, kto chce napisać najlepszy artykuł na ten temat.
+    1.  **ZIDENTYFIKUJ KLUCZOWE PUNKTY WSPÓLNE:** Wypunktuj tematy, które powtarzają się w większości tekstów.
+    2.  **WSKAŻ UNIKALNE ELEMENTY:** Wypunktuj ciekawe informacje, które pojawiły się tylko w niektórych źródłach.
+    3.  **SFORMUŁUJ WNIOSKI I REKOMENDACJE:** Stwórz listę praktycznych porad dla kogoś, kto chce napisać najlepszy artykuł na ten temat.
     Sformatuj odpowiedź używając czytelnego Markdown.
     """
     
@@ -75,8 +58,8 @@ def analyze_content_with_gemini(all_content, keyword_phrase):
     response = model.generate_content(prompt)
     return response.text
 
-# --- Interfejs Użytkownika (bez zmian) ---
-keyword = st.text_input("Wprowadź frazę kluczową, którą chcesz przeanalizować:", placeholder="np. jak łączyć ubrania w zestawy")
+# --- Interfejs Użytkownika (Z AKTUALIZACJAMI) ---
+keyword = st.text_input("Wprowadź frazę kluczową, którą chcesz przeanalizować:", placeholder="np. jaka koszulka na lato")
 
 if st.button("🚀 Rozpocznij Analizę"):
     if keyword:
@@ -87,11 +70,20 @@ if st.button("🚀 Rozpocznij Analizę"):
 
             st.write("Krok 2/3: Pobieranie treści przez Scraping API (omijanie zabezpieczeń)...")
             all_articles_content = []
+            
+            # --- ZMIANA: Lista do przechowywania pomyślnie zeskrapowanych źródeł ---
+            successful_sources = []
+            
             progress_bar = st.progress(0)
             for i, result in enumerate(top_results):
                 url = result.get('link')
                 content = scrape_and_clean_content(url)
-                if content: all_articles_content.append(content)
+                
+                # Jeśli treść została pomyślnie pobrana, dodajemy ją i zapisujemy źródło
+                if content:
+                    all_articles_content.append(content)
+                    successful_sources.append({'title': result.get('title', 'Brak tytułu'), 'link': url})
+                
                 progress_bar.progress((i + 1) / len(top_results))
 
             if not all_articles_content: st.error("Nie udało się pobrać treści z żadnej ze stron, nawet przy użyciu zaawansowanych technik."); st.stop()
@@ -102,7 +94,18 @@ if st.button("🚀 Rozpocznij Analizę"):
             
             st.balloons()
             st.success("Analiza zakończona!")
-            st.markdown(f"--- \n## 深度 Pełna Analiza SERP dla frazy: '{keyword}'")
+            
+            # --- ZMIANA: Usunięto chińskie znaki i dodano sekcję ze źródłami ---
+            st.markdown("---")
+            st.markdown(f"## Pełna Analiza SERP dla frazy: '{keyword}'")
             st.markdown(analysis_report)
+            
+            st.markdown("---")
+            with st.expander("Zobacz źródła, które zostały pomyślnie przeanalizowane"):
+                if successful_sources:
+                    for source in successful_sources:
+                        st.markdown(f"- **{source['title']}**\n  - [{source['link']}]({source['link']})")
+                else:
+                    st.write("Nie udało się zeskrapować żadnych źródeł do analizy.")
     else:
         st.warning("Proszę wpisać frazę kluczową.")
