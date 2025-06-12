@@ -17,7 +17,6 @@ try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     SEARCH_API_KEY = st.secrets["SEARCH_API_KEY"]
     SEARCH_ENGINE_ID = st.secrets["SEARCH_ENGINE_ID"]
-    # Zmieniono nazwę klucza na SCRAPE_DO_API_KEY
     SCRAPE_DO_API_KEY = st.secrets["SCRAPE_DO_API_KEY"] 
     genai.configure(api_key=GEMINI_API_KEY)
 except (KeyError, FileNotFoundError):
@@ -34,15 +33,15 @@ def get_top_10_results(api_key, cse_id, query):
 @st.cache_data
 def scrape_and_clean_content(url_to_scrape):
     try:
-        # Zmieniono API z ScrapingBee na scrape.do
+        # Prawidłowy URL dla scrape.do zgodnie z dokumentacją
+        # Używamy api.scrape.do/ zamiast scrape.do/scrape
         response = requests.get(
-            url=f'https://scrape.do/scrape?url={url_to_scrape}&token={SCRAPE_DO_API_KEY}',
-            # Dodatkowe parametry dla scrape.do, jeśli chcesz, np. render=True dla JS
-            # params={'render': 'true', 'proxy_country': 'pl'},
+            url=f'https://api.scrape.do/?token={SCRAPE_DO_API_KEY}&url={url_to_scrape}',
+            # Możesz tu dodać inne parametry, np. &render=true dla JS, &proxy_country=pl
+            # params={'render': 'true', 'proxy_country': 'pl'}, # Przykładowe opcje
             timeout=60
         )
         response.raise_for_status()
-        # scrape.do zwraca surowy HTML, więc trafilatura nadal działa
         return extract(response.text, include_comments=False, include_tables=False)
     except requests.exceptions.RequestException as e:
         st.warning(f"Nie udało się pobrać treści z {url_to_scrape} przy użyciu scrape.do: {e}")
@@ -51,9 +50,8 @@ def scrape_and_clean_content(url_to_scrape):
 def analyze_content_with_gemini(all_content, keyword_phrase):
     if not all_content: return "Brak treści do analizy."
     
-    # --- ZMODYFIKOWANY, KOMPLEKSOWY PROMPT ---
     prompt = f"""
-    Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Przeanalizuj zagregowaną treść z czołowych artykułów dla frazy "{keyword_phrase}" i na tej podstawie wygeneruj kompleksowy raport w formacie Markdown. Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagłówków `### numer. Nazwa sekcji`:
+     Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Przeanalizuj zagregowaną treść z czołowych artykułów dla frazy "{keyword_phrase}" i na tej podstawie wygeneruj kompleksowy raport w formacie Markdown. Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagłówków `### numer. Nazwa sekcji`:
 
     ### 1. Kluczowe Punkty Wspólne
     Wypunktuj wspolne informaje - koorelacje, ktore zachodza miedzy tekstami. Chce zeby to były wytyczne do tekstu dla copywritera - co ma sie znaleźć w tekście, aby mieć szanse wskoczyć do top 10 na daną frazę
@@ -80,6 +78,7 @@ def analyze_content_with_gemini(all_content, keyword_phrase):
     ### 6. Wnioski i Rekomendacje
     (Stwórz listę praktycznych porad dla osoby, która chce napisać najlepszy artykuł na ten temat.)
     """
+
     
     model = genai.GenerativeModel('gemini-1.5-flash-latest')
     response = model.generate_content(prompt)
@@ -88,7 +87,6 @@ def analyze_content_with_gemini(all_content, keyword_phrase):
 # --- NOWA FUNKCJA DO PARSOWANIA RAPORTU ---
 def parse_report(report_text):
     """Dzieli pełny raport na sekcje do wyświetlenia w zakładkach."""
-    # Używamy wyrażeń regularnych do znalezienia treści pomiędzy nagłówkami
     sections = {}
     pattern = r"###\s*\d+\.\s*(.*?)\n(.*?)(?=\n###\s*\d+\.|$)"
     matches = re.findall(pattern, report_text, re.DOTALL)
@@ -106,7 +104,6 @@ keyword = st.text_input("Wprowadź frazę kluczową, którą chcesz przeanalizow
 if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
     if keyword:
         with st.spinner("Przeprowadzam pełny audyt... To może potrwać kilka minut."):
-            # Kroki 1 i 2: Pobieranie i filtrowanie
             st.write("Etap 1/4: Pobieranie i filtrowanie wyników z Google...")
             top_results = get_top_10_results(SEARCH_API_KEY, SEARCH_ENGINE_ID, keyword)
             if not top_results: st.error("Nie znaleziono wyników."); st.stop()
@@ -117,8 +114,7 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
             if not filtered_results: st.error("Po filtracji nie pozostały żadne artykuły do analizy."); st.stop()
             st.info(f"Pominięto {len(top_results) - len(filtered_results)} wyników (wideo/social media), analizuję {len(filtered_results)} artykułów.")
 
-            # Krok 3: Scraping
-            st.write("Etap 2/4: Pobieranie treści ze stron przez Scraping API...")
+            st.write("Etap 2/4: Pobieranie treści ze stron przez scrape.do API...") # Zmieniony tekst
             all_articles_content, successful_sources = [], []
             progress_bar = st.progress(0)
             for i, result in enumerate(filtered_results):
@@ -130,7 +126,6 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
 
             if not all_articles_content: st.error("Nie udało się pobrać treści z żadnej ze stron."); st.stop()
 
-            # Krok 4: Analiza AI
             st.write("Etap 3/4: Generowanie kompleksowego raportu przez AI...")
             aggregated_content = "\n\n---\n\n".join(all_articles_content)
             full_report = analyze_content_with_gemini(aggregated_content, keyword)
@@ -143,7 +138,6 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
             
             st.markdown(f"--- \n## Audyt SEO i plan treści dla frazy: '{keyword}'")
             
-            # --- NOWY INTERFEJS Z ZAKŁADKAMI ---
             tab_titles = [
                 "Punkty Wspólne", "Unikalne Elementy", "Słowa Kluczowe",
                 "Struktura Artykułu", "FAQ", "Rekomendacje"
@@ -164,7 +158,6 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
             with tabs[5]:
                 st.markdown(report_sections.get("Wnioski i Rekomendacje", "Brak danych."))
 
-            # Rozwijana lista ze źródłami na końcu
             with st.expander(f"Zobacz {len(successful_sources)} źródeł, które zostały pomyślnie przeanalizowane"):
                 for source in successful_sources:
                     st.markdown(f"- **{source['title']}**\n  - [{source['link']}]({source['link']})")
