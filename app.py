@@ -113,12 +113,11 @@ def analyze_content_with_gemini(all_content, keyword_phrase):
     if not all_content:
         return "Brak treści do analizy przez AI."
 
-    # === PONIŻEJ ZMODYFIKOWANY PROMPT OD UŻYTKOWNIKA ===
-    # Usunięto sekcje 6 i 7 z listy numerowanej dla Gemini
+    # === ZMODYFIKOWANY PROMPT ===
     prompt = f"""
 Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Twoim zadaniem jest przeanalizowanie dostarczonej treści z czołowych artykułów dla frazy "{keyword_phrase}" i na tej podstawie wygenerowanie kompleksowego raportu w formacie Markdown.
 
-Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagłówków `### numer. Nazwa sekcji` i **żadnych innych nagłówków H3 w tytułach sekcji**:
+Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagłówków `### numer. Nazwa sekcji` i **żadnych innych nagłówków H3 w tytułach sekcji raportu**:
 
 ### 1. Kluczowe Punkty Wspólne
 (Wypunktuj tematy, podtematy, kluczowe informacje, perspektywy i style narracji, które powtarzają się w większości analizowanych tekstów. Skup się na tym, co jest standardem w TOP 10 i skonstruuj wytyczne dla copywritera)
@@ -130,7 +129,7 @@ Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagł
 (Na podstawie analizy treści konkurencji, stwórz listę 10-12 najważniejszych słów kluczowych, fraz długoogonowych i pojęć semantycznie powiązanych. Pogrupuj je tematycznie, jeśli to ułatwia zrozumienie. Wskaż intencję wyszukiwania dla frazy głównej.)
 
 ### 4. Proponowana Struktura Artykułu (Szkic)
-(Zaproponuj idealną, rozbudowaną strukturę nowego artykułu, która uwzględni kluczowe punkty, unikalne elementy i semantykę. Zaproponuj kilka nagłówków do artykułu. Oznasz je jako H2 i H3)
+(Zaproponuj idealną, rozbudowaną strukturę nowego artykułu w formacie Markdown. Użyj nagłówków drugiego poziomu (`##`) dla głównych sekcji i nagłówków trzeciego poziomu (`###`) dla podpunktów. Zaproponuj kilka nagłówków do artykułu, zawierających **około 3 nagłówki H2 i 1 nagłówek H3 jako przykład hierarchii**. Uwzględnij kluczowe punkty, unikalne elementy i semantykę z analizy.)
 
 ### 5. Sekcja FAQ (Pytania i Odpowiedzi)
 (Stwórz listę 4-5 najczęstszych pytań, na które odpowiadają konkurenci, w stylu 'People Also Ask'. Podaj 2-3 zdaniowe bezpośrednie odpowiedzi na te pytania, bazując na analizowanej treści. Odpowiedzi napisz pod pytaniami)
@@ -177,32 +176,15 @@ def parse_report(report_text):
     if not report_text: return {}
     sections = {}
     # Wyrażenie regularne do znalezienia treści pomiędzy nagłówkami ###
-    # Łapie numer, tytuł i treść aż do kolejnego nagłówka ### lub końca tekstu
-    # Zmieniono regex, aby był bardziej tolerancyjny na ewentualne pominięcia numeracji,
-    # ale wciąż oparty o format ###
-    # Nowy regex: `###\s*(?:\d+\.\s*)?(.*?)\n(.*?)(?=\n###\s*|$|\Z)`
-    # ###        - szuka dosłownie "###"
-    # \s*        - zero lub więcej białych znaków
-    # (?:\d+\.\s*)? - opcjonalnie (?:...)? nienumerowana grupa: jedna lub więcej cyfr (\d+) kropka (\.) i białe znaki (\s*)
-    # (.*?)      - łapie tytuł sekcji (dowolne znaki, niechciwie) - Grupa 1
-    # \n         - znak nowej linii
-    # (.*?)      - łapie treść sekcji (dowolne znaki, niechciwie) - Grupa 2
-    # (?=\n###\s*|$|\Z) - Pozytywne spojrzenie w przód (lookahead). Szuka, czy dalej jest:
-    #   \n###\s* - znak nowej linii, ###, białe znaki (czyli początek kolejnej sekcji)
-    #   |        - LUB
-    #   $        - koniec linii
-    #   |        - LUB
-    #   \Z       - koniec stringu (upewnia się, że łapie ostatnią sekcję)
-    pattern = r"###\s*(?:\d+\.\s*)?(.*?)\n(.*?)(?=\n###\s*|$|\Z)" # Ulepszony regex
+    pattern = r"###\s*(?:\d+\.\s*)?(.*?)\n(.*?)(?=\n###\s*|$|\Z)"
 
     matches = re.findall(pattern, report_text, re.DOTALL)
 
     for match in matches:
-        # match[0] to tytuł, match[1] to treść
         title = match[0].strip()
         content = match[1].strip()
-        if title: # Dodatkowe sprawdzenie, czy tytuł nie jest pusty po strip()
-            sections[title] = content # Kluczem słownika jest tytuł sekcji
+        if title:
+            sections[title] = content
 
     return sections
 
@@ -222,7 +204,6 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
 
     # Sprawdzenie, czy klucze są dostępne przed rozpoczęciem
     # Ta logika została już częściowo obsłużona przez blok try/except na górze
-    # ale warto dodać dodatkowe sprawdzenie, jeśli st.stop() było pominięte
     if 'GEMINI_API_KEY' not in st.secrets or 'SEARCH_API_KEY' not in st.secrets or 'SEARCH_ENGINE_ID' not in st.secrets or 'SCRAPINGBEE_API_KEY' not in st.secrets:
          st.error("Błąd: Nie wszystkie klucze API są skonfigurowane w Streamlit Secrets.")
          st.stop()
@@ -244,24 +225,25 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
             "youtube.com", "pinterest.", "instagram.com", "facebook.com",
             "olx.pl", "allegro.pl", "twitter.com", "tiktok.com",
             "wikipedia.org", "słownik.pl", "encyklopedia.", "forum.", # Dodano przykładowe filtry ogólne
-            ".gov", ".edu" # Często pomijane w analizach komercyjnych
+            ".gov", ".edu", # Często pomijane w analizach komercyjnych
+            "otodom.pl", "gratka.pl", "domiporta.pl" # Przykłady dla fraz nieruchomościowych
         ]
         # Filtrujemy wyniki, upewniając się, że link istnieje i nie jest None/pusty
         filtered_results = [r for r in top_results if r and r.get('link') and not any(b in r['link'].lower() for b in BANNED_DOMAINS)] # .lower() dla bezpieczeństwa
 
         if not filtered_results:
-            st.error("Po filtracji nie pozostały żadne artykuły do analizy (usunięto strony wideo, social media, sklepy, fora, Wikipedia, itp.).")
+            st.error("Po filtracji nie pozostały żadne artykuły do analizy (usunięto strony wideo, social media, sklepy, fora, Wikipedia, ogłoszenia, itp.).")
             st.stop()
 
         # Informacja o filtracji
         if len(top_results) > len(filtered_results):
-             st.info(f"Pominięto {len(top_results) - len(filtered_results)} wyników (wideo/social media/sklepy/fora/Wikipedia/itp.), analizuję {len(filtered_results)} znalezionych artykułów.")
+             st.info(f"Pominięto {len(top_results) - len(filtered_results)} wyników, analizuję {len(filtered_results)} znalezionych artykułów.")
 
         st.subheader("Analizowane adresy URL (po filtracji):")
         for i, result in enumerate(filtered_results, 1):
              # Dodano zabezpieczenie get() na wypadek braku tytułu, wyświetlamy link jako fallback
             display_title = result.get('title', result.get('link', f"Brak tytułu dla {result.get('link', 'nieznany URL')}"))
-            st.write(f"{i}. [{display_title}]({result.get('link', '#')})") # Używamy '#' jako fallback dla linku
+            st.write(f"{i}. [{display_title}]({result.get('link', '#')})")
 
 
         # Etap 2: Scraping treści
@@ -315,33 +297,48 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
 
         # --- Interfejs z zakładkami: DYNAMICZNE TWORZENIE ZAKŁADEK ---
         # Definiujemy preferowaną kolejność wszystkich MOŻLIWYCH zakładek
+        # Ta lista decyduje o kolejności wyświetlania, jeśli sekcja istnieje.
         preferred_tab_order = [
             "Kluczowe Punkty Wspólne",
             "Unikalne i Wyróżniające Się Elementy",
             "Sugerowane Słowa Kluczowe i Semantyka",
             "Proponowana Struktura Artykułu (Szkic)",
             "Sekcja FAQ (Pytania i Odpowiedzi)",
-            "Wnioski i Rekomendacje", # Ta sekcja nie jest generowana przez Gemini w Twoim prompcie, ale może być dodana ręcznie lub usunięta z tej listy.
+            "Wnioski i Rekomendacje", # Zachowujemy na liście preferowanej kolejności, ale zakładka pojawi się tylko jeśli Gemini ją wygeneruje (co przy obecnym prompcie się nie stanie) LUB jeśli dodalibyśmy ją ręcznie.
             "Analizowane Źródła" # Sekcja dodawana ręcznie
         ]
 
         # Tworzymy listę tytułów zakładek, które faktycznie istnieją w naszym słowniku report_sections,
         # zachowując preferowaną kolejność.
         actual_tab_titles = [
-            title for title in preferred_tab_order if title in report_sections
+            title for title in preferred_tab_order if title in report_sections and report_sections[title].strip() # Dodatkowo sprawdzamy, czy treść nie jest pusta po strip()
         ]
 
-        # Tworzenie zakładek dynamicznie na podstawie ISTNIEJĄCYCH sekcji
+        # Tworzenie zakładek dynamicznie na podstawie ISTNIEJĄCYCH i NIEPUSTYCH sekcji
         if actual_tab_titles:
-             tabs = st.tabs(actual_tab_titles)
+             # Usuwamy sekcję "Analizowane Źródła" z listy, żeby dodać ją na końcu niezależnie od kolejności z preferred_tab_order
+             # Robimy to, żeby mieć pewność, że jest ZAWSZE na końcu.
+             sources_tab_title = "Analizowane Źródła"
+             if sources_tab_title in actual_tab_titles:
+                  actual_tab_titles.remove(sources_tab_title)
 
-             for i, title in enumerate(actual_tab_titles):
+
+             tabs = st.tabs(actual_tab_titles + [sources_tab_title] if sources_tab_title in report_sections and report_sections[sources_tab_title].strip() else actual_tab_titles) # Dodajemy zakładkę źródeł na końcu, jeśli ma treść
+
+
+             # Przypisujemy tytuły do indeksów zakładek w celu poprawnego wyświetlania
+             # Tworzymy mapowanie indeks -> tytuł
+             tab_title_map = {i: title for i, title in enumerate(actual_tab_titles + [sources_tab_title] if sources_tab_title in report_sections and report_sections[sources_tab_title].strip() else actual_tab_titles)}
+
+
+             for i in range(len(tabs)):
                  with tabs[i]:
-                     st.header(title) # Dodaj nagłówek w każdej zakładce dla jasności
-                     # Pobierz treść z report_sections (wiemy, że klucz istnieje dzięki filtracji)
-                     st.markdown(report_sections[title])
+                     current_title = tab_title_map[i]
+                     st.header(current_title) # Dodaj nagłówek w każdej zakładce dla jasności
+                     # Pobierz treść z report_sections (wiemy, że klucz istnieje i nie jest pusty)
+                     st.markdown(report_sections[current_title])
         else:
-             st.warning("Brak danych do wyświetlenia w zakładkach. Sprawdź odpowiedź Gemini.")
+             st.warning("Brak danych do wyświetlenia w zakładkach. Sprawdź odpowiedź Gemini. Możliwe, że API nie zwróciło żadnej treści lub wszystkie sekcje są puste.")
 
 
     # Koniec bloku if st.button("🚀 Wygeneruj..."):
