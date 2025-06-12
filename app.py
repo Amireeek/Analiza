@@ -61,17 +61,17 @@ def analyze_content_with_gemini(all_content, keyword_phrase):
     (Stwórz listę 15-20 najważniejszych słów kluczowych i fraz powiązanych. Pogrupuj je tematycznie, jeśli to ma sens.)
 
     ### 4. Proponowany Temat Wpisu i Struktura Artykułu (Szkic)
-    (Zaproponuj **jeden konkretny, chwytliwy i zoptymalizowany pod SEO tytuł** dla nowego wpisu blogowego. Następnie zaproponuj idealną strukturę tego artykułu w formie nagłówków: **Wstęp, 4 unikalne nagłówki H2 oraz po jednym nagłówku H3 pod każdym z nagłówków H2**. Zakończ Podsumowaniem. Używaj formatu:
+    (Zaproponuj **jeden konkretny, chwytliwy i zoptymalizowany pod SEO tytuł** dla nowego wpisu blogowego. Następnie zaproponuj idealną strukturę tego artykułu w formie nagłówków: **Wstęp, 4 unikalne nagłówki H2 oraz po jednym nagłówku H3 pod każdym z nagłówków H2**. . Używaj formatu:
     ## Wstęp
     ## Pierwszy H2
     ### Pierwszy H3 pod H2
     ## Drugi H2
     ### Drugi H3 pod H2
     ...
-    ## Podsumowanie)
+
 
     ### 5. Sekcja FAQ (Pytania i Rozbudowane Odpowiedzi)
-    (Stwórz listę 4-5 najważniejszych pytań w stylu 'People Also Ask' dla tej frazy. **Udziel do każdego pytania szczegółowej, kilkuzdaniowej odpowiedzi**, bazując na przeanalizowanej treści. Treść może być dłuższa maskymalnie czterokrotnie od zadanego pytania w FAQ)
+    (Stwórz listę 4-5 najważniejszych pytań w stylu 'People Also Ask' dla tej frazy. **Udziel do każdego pytania szczegółowej, kilkuzdaniowej odpowiedzi**, bazując na przeanalizowanej treści.)
 
     ### 6. Wnioski i Rekomendacje
     (Stwórz listę praktycznych porad dla osoby, która chce napisać najlepszy artykuł na ten temat.)
