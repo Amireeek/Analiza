@@ -113,7 +113,8 @@ def analyze_content_with_gemini(all_content, keyword_phrase):
     if not all_content:
         return "Brak treści do analizy przez AI."
 
-    # Wersja promptu zgodna z Twoim kodem
+    # === PONIŻEJ ZMODYFIKOWANY PROMPT OD UŻYTKOWNIKA ===
+    # Usunięto sekcje 6 i 7 z listy numerowanej dla Gemini
     prompt = f"""
 Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Twoim zadaniem jest przeanalizowanie dostarczonej treści z czołowych artykułów dla frazy "{keyword_phrase}" i na tej podstawie wygenerowanie kompleksowego raportu w formacie Markdown.
 
@@ -139,6 +140,7 @@ Pamiętaj, aby Twoja odpowiedź była TYLKO treścią raportu w formacie Markdow
 Treść do analizy:
 {all_content}
 """
+    # === KONIEC ZMODYFIKOWANEGO PROMPTU ===
 
     try:
         # Używamy modelu gemini-1.5-flash-latest dla szybkości i kosztów
@@ -150,10 +152,15 @@ Treść do analizy:
              return response.text
         else:
              st.warning("⚠️ Gemini zwróciło pustą odpowiedź lub błąd. Spróbuj ponownie lub zmień prompt.")
+             # Dodatkowe informacje o błędzie z API Gemini
              if hasattr(response, 'prompt_feedback'):
                  st.write("Feedback z promptu:", response.prompt_feedback)
              if hasattr(response, 'candidates') and response.candidates:
-                  st.write("Kandydaci:", response.candidates[0].finish_reason)
+                  if response.candidates[0].finish_reason:
+                    st.write("Przyczyna zakończenia generacji przez API:", response.candidates[0].finish_reason)
+                  if hasattr(response.candidates[0], 'safety_ratings'):
+                     st.write("Oceny bezpieczeństwa:", response.candidates[0].safety_ratings)
+
              return None
 
 
@@ -164,19 +171,38 @@ Treść do analizy:
 
 
 # --- Funkcja do parsowania raportu (bez zmian) ---
+# Regex nadal działa, bo format nagłówków ### numer. Nazwa sekcji jest zachowany
 def parse_report(report_text):
     """Dzieli pełny raport na sekcje do wyświetlenia w zakładkach."""
     if not report_text: return {}
     sections = {}
-    # Poprawione wyrażenie regularne, aby poprawnie łapać sekcje (uwzględniając nową sekcję 7)
-    pattern = r"###\s*(\d+)\.\s*(.*?)\n(.*?)(?=\n###\s*\d+\.|$)"
+    # Wyrażenie regularne do znalezienia treści pomiędzy nagłówkami ###
+    # Łapie numer, tytuł i treść aż do kolejnego nagłówka ### lub końca tekstu
+    # Zmieniono regex, aby był bardziej tolerancyjny na ewentualne pominięcia numeracji,
+    # ale wciąż oparty o format ###
+    # Nowy regex: `###\s*(?:\d+\.\s*)?(.*?)\n(.*?)(?=\n###\s*|$|\Z)`
+    # ###        - szuka dosłownie "###"
+    # \s*        - zero lub więcej białych znaków
+    # (?:\d+\.\s*)? - opcjonalnie (?:...)? nienumerowana grupa: jedna lub więcej cyfr (\d+) kropka (\.) i białe znaki (\s*)
+    # (.*?)      - łapie tytuł sekcji (dowolne znaki, niechciwie) - Grupa 1
+    # \n         - znak nowej linii
+    # (.*?)      - łapie treść sekcji (dowolne znaki, niechciwie) - Grupa 2
+    # (?=\n###\s*|$|\Z) - Pozytywne spojrzenie w przód (lookahead). Szuka, czy dalej jest:
+    #   \n###\s* - znak nowej linii, ###, białe znaki (czyli początek kolejnej sekcji)
+    #   |        - LUB
+    #   $        - koniec linii
+    #   |        - LUB
+    #   \Z       - koniec stringu (upewnia się, że łapie ostatnią sekcję)
+    pattern = r"###\s*(?:\d+\.\s*)?(.*?)\n(.*?)(?=\n###\s*|$|\Z)" # Ulepszony regex
+
     matches = re.findall(pattern, report_text, re.DOTALL)
 
     for match in matches:
-        section_number = match[0]
-        title = match[1].strip()
-        content = match[2].strip()
-        sections[title] = content
+        # match[0] to tytuł, match[1] to treść
+        title = match[0].strip()
+        content = match[1].strip()
+        if title: # Dodatkowe sprawdzenie, czy tytuł nie jest pusty po strip()
+            sections[title] = content # Kluczem słownika jest tytuł sekcji
 
     return sections
 
@@ -213,20 +239,29 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
             st.stop()
 
         # Filtrowanie wyników (jak w Twoim kodzie)
-        BANNED_DOMAINS = ["youtube.com", "pinterest.", "instagram.com", "facebook.com", "olx.pl", "allegro.pl", "twitter.com"] # Dodano twitter
-        filtered_results = [r for r in top_results if r and r.get('link') and not any(b in r['link'] for b in BANNED_DOMAINS)] # Dodano sprawdzanie czy link istnieje i czy r nie jest None
+        # Rozszerzona lista domen do banowania
+        BANNED_DOMAINS = [
+            "youtube.com", "pinterest.", "instagram.com", "facebook.com",
+            "olx.pl", "allegro.pl", "twitter.com", "tiktok.com",
+            "wikipedia.org", "słownik.pl", "encyklopedia.", "forum.", # Dodano przykładowe filtry ogólne
+            ".gov", ".edu" # Często pomijane w analizach komercyjnych
+        ]
+        # Filtrujemy wyniki, upewniając się, że link istnieje i nie jest None/pusty
+        filtered_results = [r for r in top_results if r and r.get('link') and not any(b in r['link'].lower() for b in BANNED_DOMAINS)] # .lower() dla bezpieczeństwa
 
         if not filtered_results:
-            st.error("Po filtracji nie pozostały żadne artykuły do analizy (usunięto strony wideo, social media, sklepy, itp.).")
+            st.error("Po filtracji nie pozostały żadne artykuły do analizy (usunięto strony wideo, social media, sklepy, fora, Wikipedia, itp.).")
             st.stop()
 
         # Informacja o filtracji
         if len(top_results) > len(filtered_results):
-             st.info(f"Pominięto {len(top_results) - len(filtered_results)} wyników (wideo/social media/sklepy), analizuję {len(filtered_results)} znalezionych artykułów.")
+             st.info(f"Pominięto {len(top_results) - len(filtered_results)} wyników (wideo/social media/sklepy/fora/Wikipedia/itp.), analizuję {len(filtered_results)} znalezionych artykułów.")
 
-        st.subheader("Analizowane adresy URL:")
+        st.subheader("Analizowane adresy URL (po filtracji):")
         for i, result in enumerate(filtered_results, 1):
-            st.write(f"{i}. [{result.get('title', 'Brak tytułu')}]({result.get('link', '#')})")
+             # Dodano zabezpieczenie get() na wypadek braku tytułu, wyświetlamy link jako fallback
+            display_title = result.get('title', result.get('link', f"Brak tytułu dla {result.get('link', 'nieznany URL')}"))
+            st.write(f"{i}. [{display_title}]({result.get('link', '#')})") # Używamy '#' jako fallback dla linku
 
 
         # Etap 2: Scraping treści
@@ -236,7 +271,7 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         progress_bar = st.progress(0)
         for i, result in enumerate(filtered_results):
              url = result.get('link')
-             if url: # Upewnij się, że URL istnieje
+             if url: # Upewnij się, że URL istnieje po filtracji
                  content = scrape_and_clean_content(url, SCRAPINGBEE_API_KEY)
                  if content:
                      all_articles_content.append(content)
@@ -245,7 +280,7 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         progress_bar.empty() # Ukryj pasek postępu po zakończeniu
 
         if not all_articles_content:
-            st.error("Nie udało się pobrać treści z żadnej ze stron przy użyciu ScrapingBee. Sprawdź klucz API ScrapingBee i limity.")
+            st.error("Nie udało się pobrać treści z żadnej ze stron przy użyciu ScrapingBee. Sprawdź klucz API ScrapingBee, limity lub dostępność stron. Czasami problemem są też bardzo rozbudowane strony.")
             st.stop()
 
         st.success(f"✅ Pomyślnie pobrano treści z {len(all_articles_content)} stron.")
@@ -254,49 +289,59 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         # Etap 3: Analiza AI
         st.info("Etap 3/4: Generowanie kompleksowego raportu przez AI...")
         aggregated_content = "\n\n---\n\n".join(all_articles_content) # Połącz pobrane treści
+        # Przekazujemy zagregowaną treść i frazę kluczową do Gemini
         full_report = analyze_content_with_gemini(aggregated_content, keyword)
 
         if not full_report:
-             st.error("Generowanie raportu przez Gemini nie powiodło się.")
+             st.error("Generowanie raportu przez Gemini nie powiodło się. Sprawdź logi lub spróbuj z inną frazą/kluczami API.")
              st.stop()
 
 
         # Etap 4: Formatowanie wyników
         st.info("Etap 4/4: Formatowanie wyników...")
+        # Parsowanie odpowiedzi Gemini na sekcje
         report_sections = parse_report(full_report)
 
-        # Upewnij się, że sekcja "Analizowane Źródła" jest poprawnie dodana przez prompt
-        # Możemy nadpisać sekcję 7 w słowniku report_sections, aby na pewno wyświetlić pobrane URL-e
+        # === RĘCZNE DODANIE SEKcji Z ANALIZOWANYMI ŹRÓDŁAMI ===
+        # Zawsze dodajemy tę sekcję do słownika report_sections
         sources_text = "\n".join([f"- [{source['title']}]({source['link']})" for source in successful_sources])
-        report_sections["Analizowane Źródła"] = "Poniżej lista adresów URL, których treść została przeanalizowana przez AI:\n" + sources_text
+        report_sections["Analizowane Źródła"] = "Poniżej lista adresów URL, których treść została pomyślnie pobrana i przeanalizowana przez AI:\n" + sources_text
 
 
         st.balloons()
-        st.success("Audyt SEO gotowy!")
+        st.success("✅ Audyt SEO gotowy!")
 
         st.markdown(f"--- \n## Audyt SEO i plan treści dla frazy: '{keyword}'")
 
-        # --- Interfejs z zakładkami ---
-        # Nazwy zakładek muszą pasować do kluczy w słowniku report_sections zwróconym przez parse_report
-        # i z tytułami sekcji w prompcie do Gemini.
-        tab_titles = [
+        # --- Interfejs z zakładkami: DYNAMICZNE TWORZENIE ZAKŁADEK ---
+        # Definiujemy preferowaną kolejność wszystkich MOŻLIWYCH zakładek
+        preferred_tab_order = [
             "Kluczowe Punkty Wspólne",
             "Unikalne i Wyróżniające Się Elementy",
             "Sugerowane Słowa Kluczowe i Semantyka",
             "Proponowana Struktura Artykułu (Szkic)",
             "Sekcja FAQ (Pytania i Odpowiedzi)",
-            "Wnioski i Rekomendacje",
-            "Analizowane Źródła" # Nowa zakładka dla źródeł
+            "Wnioski i Rekomendacje", # Ta sekcja nie jest generowana przez Gemini w Twoim prompcie, ale może być dodana ręcznie lub usunięta z tej listy.
+            "Analizowane Źródła" # Sekcja dodawana ręcznie
         ]
 
-        # Tworzenie zakładek dynamicznie
-        tabs = st.tabs(tab_titles)
+        # Tworzymy listę tytułów zakładek, które faktycznie istnieją w naszym słowniku report_sections,
+        # zachowując preferowaną kolejność.
+        actual_tab_titles = [
+            title for title in preferred_tab_order if title in report_sections
+        ]
 
-        for i, title in enumerate(tab_titles):
-            with tabs[i]:
-                st.header(title) # Dodaj nagłówek w każdej zakładce dla jasności
-                # Użyj get z domyślną wartością na wypadek, gdyby Gemini nie wygenerowało którejś sekcji
-                st.markdown(report_sections.get(title, f"Brak danych dla sekcji: '{title}'. Proszę sprawdzić odpowiedź Gemini."))
+        # Tworzenie zakładek dynamicznie na podstawie ISTNIEJĄCYCH sekcji
+        if actual_tab_titles:
+             tabs = st.tabs(actual_tab_titles)
+
+             for i, title in enumerate(actual_tab_titles):
+                 with tabs[i]:
+                     st.header(title) # Dodaj nagłówek w każdej zakładce dla jasności
+                     # Pobierz treść z report_sections (wiemy, że klucz istnieje dzięki filtracji)
+                     st.markdown(report_sections[title])
+        else:
+             st.warning("Brak danych do wyświetlenia w zakładkach. Sprawdź odpowiedź Gemini.")
 
 
     # Koniec bloku if st.button("🚀 Wygeneruj..."):
