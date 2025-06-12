@@ -6,6 +6,7 @@ import re
 from trafilatura import extract
 import google.generativeai as genai
 from googleapiclient.discovery import build
+from concurrent.futures import ThreadPoolExecutor # Importujemy ThreadPoolExecutor
 
 # --- Konfiguracja strony ---
 st.set_page_config(page_title="SEO Content Powerhouse", page_icon="🚀", layout="wide")
@@ -30,15 +31,13 @@ def get_top_10_results(api_key, cse_id, query):
     res = service.cse().list(q=query, cx=cse_id, num=10, gl='pl', hl='pl').execute()
     return res.get('items', [])
 
-@st.cache_data
-def scrape_and_clean_content(url_to_scrape):
+# Funkcja scrape_and_clean_content nie musi być już cachowana, bo będzie wywoływana w pętli równoległej
+# @st.cache_data # Usunięto cache_data, bo ThreadPoolExecutor nie lubi cachowania funkcji
+def scrape_and_clean_content(url_to_scrape, api_key_for_scrape_do):
+    """Pobiera i czyści treść z podanego URL-a za pomocą scrape.do."""
     try:
-        # Prawidłowy URL dla scrape.do zgodnie z dokumentacją
-        # Używamy api.scrape.do/ zamiast scrape.do/scrape
         response = requests.get(
-            url=f'https://api.scrape.do/?token={SCRAPE_DO_API_KEY}&url={url_to_scrape}',
-            # Możesz tu dodać inne parametry, np. &render=true dla JS, &proxy_country=pl
-            # params={'render': 'true', 'proxy_country': 'pl'}, # Przykładowe opcje
+            url=f'https://api.scrape.do/?token={api_key_for_scrape_do}&url={url_to_scrape}',
             timeout=60
         )
         response.raise_for_status()
@@ -51,31 +50,29 @@ def analyze_content_with_gemini(all_content, keyword_phrase):
     if not all_content: return "Brak treści do analizy."
     
     prompt = f"""
-     Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Przeanalizuj zagregowaną treść z czołowych artykułów dla frazy "{keyword_phrase}" i na tej podstawie wygeneruj kompleksowy raport w formacie Markdown. Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagłówków `### numer. Nazwa sekcji`:
+    Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Przeanalizuj zagregowaną treść z czołowych artykułów dla frazy "{keyword_phrase}" i na tej podstawie wygeneruj kompleksowy raport w formacie Markdown. Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagłówków `### numer. Nazwa sekcji`:
 
     ### 1. Kluczowe Punkty Wspólne
-    Wypunktuj wspolne informaje - koorelacje, ktore zachodza miedzy tekstami. Chce zeby to były wytyczne do tekstu dla copywritera - co ma sie znaleźć w tekście, aby mieć szanse wskoczyć do top 10 na daną frazę
+    (Wypunktuj tematy, które powtarzają się w większości tekstów. Chce wiedziec co musi byc w tekscie zeby mol sie pojawiac w top 10 na dana fraze)
 
     ### 2. Unikalne i Wyróżniające Się Elementy
     (Wypunktuj ciekawe informacje, które pojawiły się tylko w niektórych źródłach.)
 
     ### 3. Sugerowane Słowa Kluczowe i Semantyka
-    (Stwórz listę 10-15 najważniejszych słów kluczowych i fraz powiązanych. Pogrupuj je tematycznie, jeśli to ma sens.)
+    (Stwórz listę 15-20 najważniejszych słów kluczowych i fraz powiązanych. Pogrupuj je tematycznie, jeśli to ma sens.)
 
     ### 4. Proponowany Temat Wpisu i Struktura Artykułu (Szkic)
-    (Zaproponuj **jeden konkretny, chwytliwy i zoptymalizowany pod SEO tytuł** dla nowego wpisu blogowego. Następnie zaproponuj idealną strukturę tego artykułu w formie nagłówków: **Wstęp, 4 unikalne nagłówki H2 oraz po jednym nagłówku H3 pod każdym z nagłówków H2**. Zakończ Podsumowaniem. Używaj formatu:
+    (Zaproponuj **jeden konkretny, chwytliwy i zoptymalizowany pod SEO tytuł** dla nowego wpisu blogowego. Następnie zaproponuj idealną strukturę tego artykułu w formie nagłówków: ** 4 unikalne nagłówki H2 oraz po jednym nagłówku H3 pod każdym z nagłówków H2**. . Używaj formatu:
     ## Pierwszy H2
     ### Pierwszy H3 pod H2
     ## Drugi H2
     ### Drugi H3 pod H2
-    ...
-
+     ...
 
     ### 5. Sekcja FAQ (Pytania i Rozbudowane Odpowiedzi)
-    (Stwórz listę 4-5 najważniejszych pytań w stylu 'People Also Ask' dla tej frazy. **Udziel do każdego pytania szczegółowej, kilkuzdaniowej odpowiedzi**, bazując na przeanalizowanej treści. Daj odpowiedz pod pytaniami - zrob dobrą strukturę)
+    (Stwórz listę 4-5 najważniejszych pytań w stylu 'People Also Ask' dla tej frazy. **Udziel do każdego pytania szczegółowej, kilkuzdaniowej odpowiedzi**, bazując na przeanalizowanej treści. Zrob odpowiedzi pod pytaniami)
 
     """
-
     
     model = genai.GenerativeModel('gemini-1.5-flash-latest')
     response = model.generate_content(prompt)
@@ -111,15 +108,33 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
             if not filtered_results: st.error("Po filtracji nie pozostały żadne artykuły do analizy."); st.stop()
             st.info(f"Pominięto {len(top_results) - len(filtered_results)} wyników (wideo/social media), analizuję {len(filtered_results)} artykułów.")
 
-            st.write("Etap 2/4: Pobieranie treści ze stron przez scrape.do API...") # Zmieniony tekst
-            all_articles_content, successful_sources = [], []
+            st.write(f"Etap 2/4: Pobieranie treści ze stron przez scrape.do API (równolegle, max 5 wątków)...") 
+            all_articles_content = []
+            successful_sources = []
+            
             progress_bar = st.progress(0)
-            for i, result in enumerate(filtered_results):
-                content = scrape_and_clean_content(result.get('link'))
-                if content:
-                    all_articles_content.append(content)
-                    successful_sources.append({'title': result.get('title'), 'link': result.get('link')})
-                progress_bar.progress((i + 1) / len(filtered_results))
+            
+            # Użycie ThreadPoolExecutor z maksymalnie 5 wątkami
+            # Przekazujemy SCRAPE_DO_API_KEY do funkcji scrape_and_clean_content
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                # Tworzymy listę "zadań" do wykonania w tle
+                # Używamy słownika, aby łatwiej powiązać wynik z oryginalnym obiektem result
+                future_to_result = {
+                    executor.submit(scrape_and_clean_content, result.get('link'), SCRAPE_DO_API_KEY): result
+                    for result in filtered_results
+                }
+                
+                # Iterujemy po zakończonych zadaniach
+                for i, future in enumerate(future_to_result):
+                    result = future_to_result[future] # Pobieramy oryginalny obiekt result
+                    content = future.result() # Pobieramy wynik z funkcji scrape_and_clean_content
+                    
+                    if content:
+                        all_articles_content.append(content)
+                        successful_sources.append({'title': result.get('title'), 'link': result.get('link')})
+                    
+                    # Aktualizujemy pasek postępu
+                    progress_bar.progress((i + 1) / len(filtered_results))
 
             if not all_articles_content: st.error("Nie udało się pobrać treści z żadnej ze stron."); st.stop()
 
