@@ -47,7 +47,7 @@ def scrape_and_clean_content(url_to_scrape):
 def analyze_content_with_gemini(all_content, keyword_phrase):
     if not all_content: return "Brak treści do analizy."
     
-    # --- NOWY, KOMPLEKSOWY PROMPT ---
+    # --- ZMODYFIKOWANY, KOMPLEKSOWY PROMPT ---
     prompt = f"""
     Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Przeanalizuj zagregowaną treść z czołowych artykułów dla frazy "{keyword_phrase}" i na tej podstawie wygeneruj kompleksowy raport w formacie Markdown. Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagłówków `### numer. Nazwa sekcji`:
 
@@ -60,11 +60,18 @@ def analyze_content_with_gemini(all_content, keyword_phrase):
     ### 3. Sugerowane Słowa Kluczowe i Semantyka
     (Stwórz listę 15-20 najważniejszych słów kluczowych i fraz powiązanych. Pogrupuj je tematycznie, jeśli to ma sens.)
 
-    ### 4. Proponowana Struktura Artykułu (Szkic)
-    (Zaproponuj idealną strukturę nowego artykułu w formie nagłówków H2 i H3, od wstępu po podsumowanie.)
+    ### 4. Proponowany Temat Wpisu i Struktura Artykułu (Szkic)
+    (Zaproponuj **jeden konkretny, chwytliwy i zoptymalizowany pod SEO tytuł** dla nowego wpisu blogowego. Następnie zaproponuj idealną strukturę tego artykułu w formie nagłówków: **Wstęp, 4 unikalne nagłówki H2 oraz po jednym nagłówku H3 pod każdym z nagłówków H2**. Zakończ Podsumowaniem. Używaj formatu:
+    ## Wstęp
+    ## Pierwszy H2
+    ### Pierwszy H3 pod H2
+    ## Drugi H2
+    ### Drugi H3 pod H2
+    ...
+    ## Podsumowanie)
 
-    ### 5. Sekcja FAQ (Pytania i Odpowiedzi)
-    (Stwórz listę 4-5 najważniejszych pytań w stylu 'People Also Ask' i udziel na nie zwięzłych odpowiedzi.)
+    ### 5. Sekcja FAQ (Pytania i Rozbudowane Odpowiedzi)
+    (Stwórz listę 4-5 najważniejszych pytań w stylu 'People Also Ask' dla tej frazy. **Udziel do każdego pytania szczegółowej, kilkuzdaniowej odpowiedzi**, bazując na przeanalizowanej treści. Treść może być dłuższa maskymalnie czterokrotnie od zadanego pytania w FAQ)
 
     ### 6. Wnioski i Rekomendacje
     (Stwórz listę praktycznych porad dla osoby, która chce napisać najlepszy artykuł na ten temat.)
@@ -146,10 +153,10 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
                 st.markdown(report_sections.get("Unikalne i Wyróżniające Się Elementy", "Brak danych."))
             with tabs[2]:
                 st.markdown(report_sections.get("Sugerowane Słowa Kluczowe i Semantyka", "Brak danych."))
-            with tabs[3]:
-                st.markdown(report_sections.get("Proponowana Struktura Artykułu (Szkic)", "Brak danych."))
-            with tabs[4]:
-                st.markdown(report_sections.get("Sekcja FAQ (Pytania i Odpowiedzi)", "Brak danych."))
+            with tabs[3]: # Zmieniona zakładka
+                st.markdown(report_sections.get("Proponowany Temat Wpisu i Struktura Artykułu (Szkic)", "Brak danych."))
+            with tabs[4]: # Zmieniona zakładka
+                st.markdown(report_sections.get("Sekcja FAQ (Pytania i Rozbudowane Odpowiedzi)", "Brak danych."))
             with tabs[5]:
                 st.markdown(report_sections.get("Wnioski i Rekomendacje", "Brak danych."))
 
