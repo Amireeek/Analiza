@@ -17,10 +17,11 @@ try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     SEARCH_API_KEY = st.secrets["SEARCH_API_KEY"]
     SEARCH_ENGINE_ID = st.secrets["SEARCH_ENGINE_ID"]
-    SCRAPINGBEE_API_KEY = st.secrets["SCRAPINGBEE_API_KEY"]
+    # Zmieniono nazwę klucza na SCRAPE_DO_API_KEY
+    SCRAPE_DO_API_KEY = st.secrets["SCRAPE_DO_API_KEY"] 
     genai.configure(api_key=GEMINI_API_KEY)
 except (KeyError, FileNotFoundError):
-    st.error("Błąd: Klucze API nie zostały znalezione. Upewnij się, że skonfigurowałeś WSZYSTKIE 4 sekrety w Streamlit.")
+    st.error("Błąd: Klucze API nie zostały znalezione. Upewnij się, że skonfigurowałeś WSZYSTKIE 4 sekrety w Streamlit (w tym SCRAPE_DO_API_KEY).")
     st.stop()
 
 # --- Funkcje Backendowe ---
@@ -33,15 +34,18 @@ def get_top_10_results(api_key, cse_id, query):
 @st.cache_data
 def scrape_and_clean_content(url_to_scrape):
     try:
+        # Zmieniono API z ScrapingBee na scrape.do
         response = requests.get(
-            url='https://app.scrapingbee.com/api/v1/',
-            params={'api_key': SCRAPINGBEE_API_KEY, 'url': url_to_scrape, 'premium_proxy': 'true'},
+            url=f'https://scrape.do/scrape?url={url_to_scrape}&token={SCRAPE_DO_API_KEY}',
+            # Dodatkowe parametry dla scrape.do, jeśli chcesz, np. render=True dla JS
+            # params={'render': 'true', 'proxy_country': 'pl'},
             timeout=60
         )
         response.raise_for_status()
+        # scrape.do zwraca surowy HTML, więc trafilatura nadal działa
         return extract(response.text, include_comments=False, include_tables=False)
     except requests.exceptions.RequestException as e:
-        st.warning(f"Nie udało się pobrać treści z {url_to_scrape}: {e}")
+        st.warning(f"Nie udało się pobrać treści z {url_to_scrape} przy użyciu scrape.do: {e}")
         return None
 
 def analyze_content_with_gemini(all_content, keyword_phrase):
@@ -52,7 +56,7 @@ def analyze_content_with_gemini(all_content, keyword_phrase):
     Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Przeanalizuj zagregowaną treść z czołowych artykułów dla frazy "{keyword_phrase}" i na tej podstawie wygeneruj kompleksowy raport w formacie Markdown. Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagłówków `### numer. Nazwa sekcji`:
 
     ### 1. Kluczowe Punkty Wspólne
-    (Wypunktuj tematy, które powtarzają się w większości tekstów.)
+    Wypunktuj wspolne informaje - koorelacje, ktore zachodza miedzy tekstami. Chce zeby to były wytyczne do tekstu dla copywritera - co ma sie znaleźć w tekście, aby mieć szanse wskoczyć do top 10 na daną frazę
 
     ### 2. Unikalne i Wyróżniające Się Elementy
     (Wypunktuj ciekawe informacje, które pojawiły się tylko w niektórych źródłach.)
@@ -61,7 +65,7 @@ def analyze_content_with_gemini(all_content, keyword_phrase):
     (Stwórz listę 15-20 najważniejszych słów kluczowych i fraz powiązanych. Pogrupuj je tematycznie, jeśli to ma sens.)
 
     ### 4. Proponowany Temat Wpisu i Struktura Artykułu (Szkic)
-    (Zaproponuj **jeden konkretny, chwytliwy i zoptymalizowany pod SEO tytuł** dla nowego wpisu blogowego. Następnie zaproponuj idealną strukturę tego artykułu w formie nagłówków: **Wstęp, 4 unikalne nagłówki H2 oraz po jednym nagłówku H3 pod każdym z nagłówków H2**. . Używaj formatu:
+    (Zaproponuj **jeden konkretny, chwytliwy i zoptymalizowany pod SEO tytuł** dla nowego wpisu blogowego. Następnie zaproponuj idealną strukturę tego artykułu w formie nagłówków: **Wstęp, 4 unikalne nagłówki H2 oraz po jednym nagłówku H3 pod każdym z nagłówków H2**. Zakończ Podsumowaniem. Używaj formatu:
     ## Wstęp
     ## Pierwszy H2
     ### Pierwszy H3 pod H2
@@ -153,9 +157,9 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
                 st.markdown(report_sections.get("Unikalne i Wyróżniające Się Elementy", "Brak danych."))
             with tabs[2]:
                 st.markdown(report_sections.get("Sugerowane Słowa Kluczowe i Semantyka", "Brak danych."))
-            with tabs[3]: # Zmieniona zakładka
+            with tabs[3]: 
                 st.markdown(report_sections.get("Proponowany Temat Wpisu i Struktura Artykułu (Szkic)", "Brak danych."))
-            with tabs[4]: # Zmieniona zakładka
+            with tabs[4]: 
                 st.markdown(report_sections.get("Sekcja FAQ (Pytania i Rozbudowane Odpowiedzi)", "Brak danych."))
             with tabs[5]:
                 st.markdown(report_sections.get("Wnioski i Rekomendacje", "Brak danych."))
