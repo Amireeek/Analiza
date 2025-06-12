@@ -120,25 +120,20 @@ Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Twoim 
 Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagłówków `### numer. Nazwa sekcji` i **żadnych innych nagłówków H3 w tytułach sekcji**:
 
 ### 1. Kluczowe Punkty Wspólne
-(Wypunktuj tematy, podtematy, kluczowe informacje, perspektywy i style narracji, które powtarzają się w większości analizowanych tekstów. Skup się na tym, co jest standardem w TOP 10.)
+(Wypunktuj tematy, podtematy, kluczowe informacje, perspektywy i style narracji, które powtarzają się w większości analizowanych tekstów. Skup się na tym, co jest standardem w TOP 10 i skonstruuj wytyczne dla copywritera)
 
 ### 2. Unikalne i Wyróżniające Się Elementy
 (Wypunktuj nietypowe, oryginalne, innowacyjne lub szczególnie wartościowe informacje, dane, przykłady, case studies, infografiki (opisz co przedstawiają) lub perspektywy, które pojawiły się tylko w niektórych źródłach i mogą stanowić przewagę konkurencyjną dla nowego artykułu.)
 
 ### 3. Sugerowane Słowa Kluczowe i Semantyka
-(Na podstawie analizy treści konkurencji, stwórz listę 15-20 najważniejszych słów kluczowych, fraz długoogonowych i pojęć semantycznie powiązanych. Pogrupuj je tematycznie, jeśli to ułatwia zrozumienie. Wskaż intencję wyszukiwania dla frazy głównej.)
+(Na podstawie analizy treści konkurencji, stwórz listę 10-12 najważniejszych słów kluczowych, fraz długoogonowych i pojęć semantycznie powiązanych. Pogrupuj je tematycznie, jeśli to ułatwia zrozumienie. Wskaż intencję wyszukiwania dla frazy głównej.)
 
 ### 4. Proponowana Struktura Artykułu (Szkic)
-(Zaproponuj idealną, rozbudowaną strukturę nowego artykułu, która uwzględni kluczowe punkty, unikalne elementy i semantykę. Użyj hierarchii nagłówków H2 i H3. Pamiętaj o wstępie, rozwinięciu i podsumowaniu.)
+(Zaproponuj idealną, rozbudowaną strukturę nowego artykułu, która uwzględni kluczowe punkty, unikalne elementy i semantykę. Zaproponuj kilka nagłówków do artykułu. Oznasz je jako H2 i H3)
 
 ### 5. Sekcja FAQ (Pytania i Odpowiedzi)
-(Stwórz listę 4-5 najczęstszych pytań, na które odpowiadają konkurenci, w stylu 'People Also Ask'. Podaj zwięzłe, bezpośrednie odpowiedzi na te pytania, bazując na analizowanej treści.)
+(Stwórz listę 4-5 najczęstszych pytań, na które odpowiadają konkurenci, w stylu 'People Also Ask'. Podaj 2-3 zdaniowe bezpośrednie odpowiedzi na te pytania, bazując na analizowanej treści. Odpowiedzi napisz pod pytaniami)
 
-### 6. Wnioski i Rekomendacje
-(Stwórz listę praktycznych porad i kluczowych wniosków dla autora, który ma napisać najlepszy możliwy artykuł na ten temat. Co powinien zrobić, aby przewyższyć konkurencję?)
-
-### 7. Analizowane Źródła
-(Wypisz listę URL-i, które zostały pomyślnie przeanalizowane.)
 
 Pamiętaj, aby Twoja odpowiedź była TYLKO treścią raportu w formacie Markdown, bez żadnych dodatkowych wstępów czy podsumowań poza strukturą raportu. Cała odpowiedź musi być w języku polskim.
 Treść do analizy:
