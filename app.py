@@ -48,10 +48,8 @@ except Exception as e:
 
 @st.cache_data
 def get_serp_data_with_dataforseo(login, password, query, num_results=10, location_code=2616, language_code='pl'):
-    """
-    Pobiera TYLKO wyniki organiczne wyszukiwania Google używając API DataForSEO.
-    Zwraca listę wyników organicznych.
-    """
+    """Pobiera TYLKO wyniki organiczne wyszukiwania Google używając API DataForSEO."""
+    # (bez zmian)
     post_data = [{"keyword": query, "location_code": location_code, "language_code": language_code, "depth": num_results}]
     headers = {'Content-Type': 'application/json'}
     endpoint_url = "https://api.dataforseo.com/v3/serp/google/organic/live/regular"
@@ -63,8 +61,7 @@ def get_serp_data_with_dataforseo(login, password, query, num_results=10, locati
         if data.get("status_code") == 20000 and data.get("tasks") and data["tasks"][0].get("result") and data["tasks"][0]["result"][0].get("items"):
             items = data["tasks"][0]["result"][0]["items"]
             for item in items:
-                item_type = item.get("type")
-                if item_type == "organic": # Interesują nas tylko wyniki organiczne
+                if item.get("type") == "organic":
                     title, link = item.get("title"), item.get("url")
                     if title and link: organic_results_list.append({'title': title, 'link': link})
         else:
@@ -72,10 +69,58 @@ def get_serp_data_with_dataforseo(login, password, query, num_results=10, locati
             tasks_error = ""
             if data.get("tasks") and data["tasks"][0].get("status_message") != "Ok.":
                 tasks_error = f" Błąd zadania: {data['tasks'][0]['status_code']} - {data['tasks'][0]['status_message']}"
-            st.warning(f"DataForSEO API zwróciło nieoczekiwany status lub brak wyników: {status_message}{tasks_error}.")
-        return organic_results_list # Zwracamy tylko listę wyników organicznych
-    except: # Uproszczona obsługa błędów
+            st.warning(f"DataForSEO API (SERP) zwróciło nieoczekiwany status lub brak wyników: {status_message}{tasks_error}.")
+        return organic_results_list
+    except Exception as e: # Uproszczona obsługa błędów dla zwięzłości
+        st.error(f"🛑 Błąd DataForSEO (SERP): {e}")
         return []
+
+
+@st.cache_data
+def get_keyword_volumes_dataforseo(login, password, keywords_list, location_code=2616, language_code='pl'):
+    """Pobiera wolumeny wyszukiwań dla listy słów kluczowych z DataForSEO."""
+    if not keywords_list:
+        return {}
+
+    # DataForSEO API pozwala na wysłanie do 1000 słów kluczowych w jednym zadaniu,
+    # ale w ramach jednego elementu tablicy 'post_data' do 100.
+    # Dla bezpieczeństwa i prostoty, jeśli mamy więcej, można by to dzielić na paczki,
+    # ale na razie zakładamy, że lista nie będzie aż tak długa.
+    post_data = [{
+        "keywords": keywords_list,
+        "location_code": location_code,
+        "language_code": language_code
+    }]
+    
+    headers = {'Content-Type': 'application/json'}
+    # Endpoint dla Google Ads Search Volume API
+    endpoint_url = "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live"
+    
+    keyword_volumes = {}
+    try:
+        # st.write(f"Wysyłanie zapytania o wolumeny do DataForSEO dla: {keywords_list}") # Debug
+        response = requests.post(endpoint_url, auth=(login, password), headers=headers, json=post_data, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        # st.write(f"Odpowiedź JSON (wolumeny) od DataForSEO: {data}") # Debug
+
+        if data.get("status_code") == 20000 and data.get("tasks") and data["tasks"][0].get("result"):
+            results = data["tasks"][0]["result"]
+            for res_item in results:
+                keyword = res_item.get("keyword")
+                search_volume = res_item.get("search_volume") # Może być None, jeśli brak danych
+                if keyword:
+                    keyword_volumes[keyword.lower()] = search_volume if search_volume is not None else "brak danych"
+        else:
+            status_message = data.get("status_message", "Nieznany błąd.")
+            tasks_error = ""
+            if data.get("tasks") and data["tasks"][0].get("status_message") != "Ok.": # Może być pusta lista tasks lub task[0] może nie mieć result
+                tasks_error = f" Błąd zadania: {data['tasks'][0]['status_code']} - {data['tasks'][0]['status_message']}"
+            st.warning(f"DataForSEO API (Search Volume) zwróciło nieoczekiwany status: {status_message}{tasks_error}.")
+        return keyword_volumes
+    except Exception as e:
+        st.error(f"🛑 Błąd DataForSEO (Search Volume): {e}")
+        return {}
 
 
 @st.cache_data
@@ -137,19 +182,51 @@ Treść do analizy:
 """
     return generate_gemini_response(prompt, "2. Unikalne i Wyróżniające Się Elementy")
 
-def generate_słowa_kluczowe(all_content, keyword_phrase):
-    # (bez zmian)
+def generate_słowa_kluczowe_initial(all_content, keyword_phrase): # Zmieniono nazwę, aby odróżnić
+    """Generuje WSTĘPNĄ listę słów kluczowych przez Gemini."""
     prompt = f"""Jako analityk SEO, przeanalizuj poniższą treść z artykułów TOP10 dla frazy "{keyword_phrase}".
 Twoim zadaniem jest TYLKO wygenerowanie sekcji "### 3. Sugerowane Słowa Kluczowe i Semantyka".
-Na podstawie analizy treści konkurencji z TOP10, stwórz listę 10-12 najważniejszych słów kluczowych, fraz długoogonowych i pojęć semantycznie powiązanych. Pogrupuj je tematycznie, jeśli to ułatwia zrozumienie. Wskaż intencję wyszukiwania dla frazy głównej. Odpowiedź musi być TYLKO treścią tej sekcji, zaczynając od nagłówka `### 3. Sugerowane Słowa Kluczowe i Semantyka`.
+Na podstawie analizy treści konkurencji z TOP10, stwórz listę 10-12 najważniejszych słów kluczowych, fraz długoogonowych i pojęć semantycznie powiązanych. Pogrupuj je tematycznie, jeśli to ułatwia zrozumienie. Wskaż intencję wyszukiwania dla frazy głównej.
+Formatuj listę słów kluczowych jako standardowe punkty Markdown (np. `- Słowo kluczowe`). Nie dodawaj żadnych dodatkowych informacji poza samymi słowami kluczowymi i ich ewentualnym grupowaniem tematycznym.
+Odpowiedź musi być TYLKO treścią tej sekcji, zaczynając od nagłówka `### 3. Sugerowane Słowa Kluczowe i Semantyka`.
 
 Treść do analizy:
 {all_content if all_content else "Brak treści z artykułów TOP10 do analizy."}
 """
-    return generate_gemini_response(prompt, "3. Sugerowane Słowa Kluczowe i Semantyka")
+    return generate_gemini_response(prompt, "3. Sugerowane Słowa Kluczowe i Semantyka (Wstępne)")
+
+def format_słowa_kluczowe_with_volumes(gemini_section_text, keyword_volumes_map):
+    """Dodaje wolumeny do wygenerowanej przez Gemini sekcji słów kluczowych."""
+    if not gemini_section_text.strip():
+        return "### 3. Sugerowane Słowa Kluczowe i Semantyka\nNie udało się wygenerować listy słów kluczowych."
+    
+    lines = gemini_section_text.split('\n')
+    output_lines = []
+    # Regex do znalezienia linii z punktorem (-, *, lub cyfra.) i tekstem za nim
+    keyword_line_pattern = re.compile(r"^\s*[-*]\s+(.+)$|^\s*\d+\.\s+(.+)$")
+
+    for line in lines:
+        match = keyword_line_pattern.match(line)
+        if match:
+            # Bierzemy grupę, która nie jest None (dla '-' lub dla '1.')
+            keyword_text = next(g for g in match.groups() if g is not None).strip()
+            # Usuń potencjalne dodatkowe opisy po słowie kluczowym, jeśli są w tej samej linii i nie są częścią słowa
+            # To jest heurystyka i może wymagać dostosowania
+            keyword_to_lookup = keyword_text.split(' (')[0].split(' - ')[0].strip().lower() # Bierzemy tekst przed ' (' lub ' - '
+
+            volume = keyword_volumes_map.get(keyword_to_lookup, "brak danych")
+            # Dodajemy tylko jeśli faktycznie to linia z punktorem i tekstem
+            # Jeśli oryginalna linia miała np. pogrubienie, zachowujemy je, dodając wolumen
+            original_keyword_part_in_line = match.group(0) # Cała linia z punktorem
+            output_lines.append(f"{original_keyword_part_in_line} (szac. wyszukań/mc: {volume})")
+        else:
+            output_lines.append(line) # Zachowaj linie, które nie są słowami kluczowymi (np. nagłówki grup)
+            
+    return "\n".join(output_lines)
+
 
 def generate_struktura_artykulu(all_content, keyword_phrase):
-    # --- ZMIANA TUTAJ: Jeszcze bardziej stanowcze instrukcje dotyczące struktury ---
+    # (bez zmian w stosunku do ostatniej wersji)
     prompt = f"""Jako ekspert SEO specjalizujący się w tworzeniu BARDZO SZCZEGÓŁOWYCH i WYCZERPUJĄCYCH konspektów artykułów, przeanalizuj poniższą treść z artykułów TOP10 dla frazy "{keyword_phrase}".
 Twoim zadaniem jest TYLKO wygenerowanie sekcji "### 4. Proponowana Struktura Artykułu (Szkic)".
 Zaproponuj niezwykle rozbudowaną i dogłębną strukturę nowego artykułu w formacie Markdown. Struktura MUSI zawierać:
@@ -165,7 +242,7 @@ Treść do analizy:
     return generate_gemini_response(prompt, "4. Proponowana Struktura Artykułu (Szkic)")
 
 def generate_faq(all_content, keyword_phrase):
-    # (bez zmian - instrukcja o odpowiedziach pod pytaniami już była)
+    # (bez zmian)
     prompt = f"""Jako analityk SEO, przeanalizuj poniższą treść z artykułów TOP10 dla frazy "{keyword_phrase}".
 Twoim zadaniem jest TYLKO wygenerowanie sekcji "### 5. Sekcja FAQ (Pytania i Odpowiedzi)".
 Stwórz listę 4-5 najczęstszych pytań, na które odpowiadają konkurenci z TOP10, w stylu 'People Also Ask'. **Dla każdego pytania, podaj 2-3 zdaniową bezpośrednią odpowiedź, pisząc ją BEZPOŚREDNIO POD DANYM PYTANIEM, w nowej linii.** Użyj formatowania Markdown: pytanie jako zwykły tekst lub pogrubiony, a odpowiedź pod nim. Odpowiedź musi być TYLKO treścią tej sekcji, zaczynając od nagłówka `### 5. Sekcja FAQ (Pytania i Odpowiedzi)`.
@@ -175,7 +252,6 @@ Treść do analizy:
 """
     return generate_gemini_response(prompt, "5. Sekcja FAQ (Pytania i Odpowiedzi)")
 
-# Funkcja generate_wskazowki_sge nie jest już potrzebna, bo usuwamy tę sekcję
 
 def parse_report(report_text):
     """Dzieli pełny raport na sekcje do wyświetlenia w zakładkach."""
@@ -210,10 +286,9 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
 
     with st.spinner("Przeprowadzam pełny audyt... To może potrwać kilka minut."):
         st.info("Etap 1/4: Pobieranie i filtrowanie wyników z Google (przez DataForSEO)...")
-        # --- ZMIANA TUTAJ: get_serp_data_with_dataforseo zwraca teraz tylko listę wyników organicznych ---
         top_results = get_serp_data_with_dataforseo(DATAFORSEO_LOGIN, DATAFORSEO_PASSWORD, keyword)
         
-        if not top_results: # Jeśli nie ma żadnych wyników organicznych
+        if not top_results:
             st.error(f"Nie udało się pobrać wyników organicznych z DataForSEO dla frazy '{keyword}'. Audyt przerwany.")
             st.stop()
 
@@ -230,7 +305,7 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         for i, r in enumerate(filtered_results, 1): st.write(f"{i}. [{r.get('title', r.get('link'))}]({r.get('link', '#')})")
 
         all_articles_content_str = ""
-        if filtered_results: # Tylko jeśli są artykuły do scrapowania
+        if filtered_results:
             st.info("Etap 2/4: Pobieranie treści ze stron (ScrapingBee)...")
             all_articles_content_list = []
             progress_bar = st.progress(0)
@@ -246,7 +321,7 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
                 st.success(f"✅ Pomyślnie pobrano treści z {len(all_articles_content_list)} stron.")
                 all_articles_content_str = "\n\n---\n\n".join(all_articles_content_list)
         
-        if not all_articles_content_str and not filtered_results: # Jeśli nie ma ani treści, ani nawet linków (co nie powinno się zdarzyć jeśli filtered_results jest warunkiem)
+        if not all_articles_content_str and not filtered_results:
             st.error("Brak treści artykułów do analizy. Audyt przerwany.")
             st.stop()
 
@@ -254,23 +329,66 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         report_parts = []
         report_progress = st.progress(0)
         
-        # --- ZMIANA TUTAJ: Usunięto sekcję SGE z listy generowania ---
-        sections_to_generate = [
+        # --- ZMIANA TUTAJ: Kolejność i sposób generowania sekcji 3 ---
+        sections_definitions = [
             ("1. Kluczowe Punkty Wspólne", lambda: generate_kluczowe_punkty(all_articles_content_str, keyword)),
             ("2. Unikalne i Wyróżniające Się Elementy", lambda: generate_unikalne_elementy(all_articles_content_str, keyword)),
-            ("3. Sugerowane Słowa Kluczowe i Semantyka", lambda: generate_słowa_kluczowe(all_articles_content_str, keyword)),
+            # Sekcja 3 będzie teraz generowana wieloetapowo
             ("4. Proponowana Struktura Artykułu (Szkic)", lambda: generate_struktura_artykulu(all_articles_content_str, keyword)),
             ("5. Sekcja FAQ (Pytania i Odpowiedzi)", lambda: generate_faq(all_articles_content_str, keyword))
         ]
-        total_sections = len(sections_to_generate)
+        total_sections_for_progress = len(sections_definitions) + 1 # +1 dla specjalnej obsługi sekcji 3
 
-        for i, (section_title, generation_func) in enumerate(sections_to_generate):
-            st.write(f"Generowanie sekcji: {section_title}...") # Daje feedback użytkownikowi
+        # Generowanie sekcji 1 i 2
+        for i in range(2): # Pierwsze dwie sekcje
+            section_title, generation_func = sections_definitions[i]
+            st.write(f"Generowanie sekcji: {section_title}...")
             part = generation_func()
             report_parts.append(part)
-            report_progress.progress((i + 1) / total_sections)
-            # time.sleep(0.5) # Można przywrócić, jeśli API Gemini ma problemy z rate limiting
+            report_progress.progress((i + 1) / total_sections_for_progress)
+            time.sleep(0.2)
 
+        # Etap specjalny: Generowanie sekcji 3 (Słowa kluczowe z wolumenami)
+        st.write("Generowanie sekcji: 3. Sugerowane Słowa Kluczowe i Semantyka (krok 1/2 - sugestie AI)...")
+        gemini_keywords_section_text = generate_słowa_kluczowe_initial(all_articles_content_str, keyword)
+        report_progress.progress(3 / total_sections_for_progress)
+        
+        extracted_keywords_for_volume = []
+        if gemini_keywords_section_text and "Brak danych" not in gemini_keywords_section_text and "Błąd generowania" not in gemini_keywords_section_text:
+            keyword_line_pattern = re.compile(r"^\s*[-*]\s+(.+)$|^\s*\d+\.\s+(.+)$")
+            for line in gemini_keywords_section_text.split('\n'):
+                match = keyword_line_pattern.match(line)
+                if match:
+                    keyword_text = next(g for g in match.groups() if g is not None).strip()
+                    # Proste czyszczenie, bierzemy tekst przed ' (' lub ' - '
+                    cleaned_keyword = keyword_text.split(' (')[0].split(' - ')[0].strip()
+                    if cleaned_keyword: # Upewnij się, że coś zostało
+                        extracted_keywords_for_volume.append(cleaned_keyword)
+        
+        final_section_3_text = gemini_keywords_section_text # Domyślnie, jeśli nie ma wolumenów
+        if extracted_keywords_for_volume:
+            st.write(f"Generowanie sekcji: 3. Sugerowane Słowa Kluczowe i Semantyka (krok 2/2 - pobieranie wolumenów dla {len(extracted_keywords_for_volume)} fraz)...")
+            keyword_volumes = get_keyword_volumes_dataforseo(DATAFORSEO_LOGIN, DATAFORSEO_PASSWORD, extracted_keywords_for_volume)
+            if keyword_volumes:
+                final_section_3_text = format_słowa_kluczowe_with_volumes(gemini_keywords_section_text, keyword_volumes)
+            else:
+                st.warning("Nie udało się pobrać wolumenów wyszukiwań dla sugerowanych słów kluczowych.")
+        else:
+            st.warning("Nie udało się wyekstrahować słów kluczowych z sugestii AI do sprawdzenia wolumenów.")
+
+        report_parts.append(final_section_3_text)
+        report_progress.progress(4 / total_sections_for_progress) # Aktualizacja postępu po całej sekcji 3
+        time.sleep(0.2)
+
+        # Generowanie pozostałych sekcji (4 i 5 z pierwotnej listy)
+        for i in range(2, len(sections_definitions)): # Zaczynamy od indeksu 2 (sekcja 4)
+            section_title, generation_func = sections_definitions[i]
+            st.write(f"Generowanie sekcji: {section_title}...")
+            part = generation_func()
+            report_parts.append(part)
+            report_progress.progress((i + 2) / total_sections_for_progress) # +2 bo 2 już były + 1 za sekcję 3
+            time.sleep(0.2)
+        
         full_report = "\n\n".join(report_parts)
         report_progress.empty()
 
@@ -285,10 +403,10 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         st.success("✅ Audyt SEO gotowy!")
         st.markdown(f"--- \n## Audyt SEO i plan treści dla frazy: '{keyword}'")
 
-        # --- ZMIANA TUTAJ: Usunięto sekcję SGE i Analizowane Źródła z zakładek ---
         preferred_tab_order = [
             "Kluczowe Punkty Wspólne", "Unikalne i Wyróżniające Się Elementy",
-            "Sugerowane Słowa Kluczowe i Semantyka", "Proponowana Struktura Artykułu (Szkic)",
+            "Sugerowane Słowa Kluczowe i Semantyka", # Ten tytuł będzie użyty przez parse_report
+            "Proponowana Struktura Artykułu (Szkic)",
             "Sekcja FAQ (Pytania i Odpowiedzi)"
         ]
         
@@ -296,7 +414,7 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         
         if actual_tab_titles:
             tabs = st.tabs(actual_tab_titles)
-            for i, tab_title in enumerate(actual_tab_titles): # Zmieniono mapowanie, aby było prostsze
+            for i, tab_title in enumerate(actual_tab_titles):
                 with tabs[i]:
                     st.header(tab_title)
                     st.markdown(report_sections[tab_title])
