@@ -208,27 +208,39 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
          st.error("Błąd: Nie wszystkie klucze API są skonfigurowane w Streamlit Secrets.")
          st.stop()
 
-    # ========================================================================
-    # >>> POCZĄTEK WPROWADZONEJ ZMIANY <<<
-    # Wymuszenie dokładnego dopasowania poprzez opakowanie frazy w cudzysłów.
-    # UWAGA: To znacznie zawęża wyszukiwanie i często może prowadzić do braku wyników.
-    exact_query = f'"{keyword}"'
-    st.info(f"Włączono tryb dokładnego wyszukiwania. Wyszukiwana fraza: {exact_query}")
-    # ========================================================================
-
-
     with st.spinner("Przeprowadzam pełny audyt... To może potrwać kilka minut."):
 
         # Etap 1: Pobieranie wyników z Google
         st.info("Etap 1/4: Pobieranie i filtrowanie wyników z Google...")
-        # Używamy zmodyfikowanej zmiennej `exact_query` do wyszukiwania
+
+        # ========================================================================
+        # >>> POCZĄTEK ZMODYFIKOWANEJ LOGIKI WYSZUKIWANIA <<<
+        # ========================================================================
+        search_mode_message = "" # Zmienna do przechowywania komunikatu o trybie wyszukiwania
+
+        # 1. Spróbuj wyszukać z dokładnym dopasowaniem
+        exact_query = f'"{keyword}"'
+        st.info(f"Próba wyszukiwania dokładnej frazy: {exact_query}")
         top_results = get_top_10_results(SEARCH_API_KEY, SEARCH_ENGINE_ID, exact_query)
-        # >>> KONIEC WPROWADZONEJ ZMIANY <<<
+
+        search_mode_message = f"Wyszukiwano dokładną frazę: `{exact_query}`."
+
+        # 2. Jeśli dokładne wyszukiwanie nie dało wyników, spróbuj wyszukiwania ogólnego
+        if not top_results:
+            st.warning(f"Nie znaleziono wyników dla dokładnej frazy: '{exact_query}'. Próbuję wyszukiwania ogólnego dla frazy: '{keyword}'...")
+            top_results = get_top_10_results(SEARCH_API_KEY, SEARCH_ENGINE_ID, keyword)
+            search_mode_message = f"Wyszukiwano ogólną frazę: `{keyword}` (po niepowodzeniu wyszukiwania dokładnego)."
+        # ========================================================================
+        # >>> KONIEC ZMODYFIKOWANEJ LOGIKI WYSZUKIWANIA <<<
         # ========================================================================
 
         if not top_results:
-            st.error(f"Nie znaleziono żadnych wyników TOP 10 dla DOKŁADNEJ frazy: '{keyword}'. Spróbuj użyć bardziej ogólnej frazy lub wyłącz tryb dokładnego dopasowania w kodzie.")
+            st.error(f"Nie znaleziono żadnych wyników TOP 10 ani dla DOKŁADNEJ frazy '{keyword}' ani dla frazy OGÓLNEJ. Spróbuj użyć innej frazy.")
             st.stop()
+
+        # Wyświetl informację o aktualnie używanym trybie wyszukiwania (po potencjalnej zmianie)
+        st.info(search_mode_message)
+
 
         # Filtrowanie wyników (jak w Twoim kodzie)
         # Rozszerzona lista domen do banowania
@@ -315,39 +327,34 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
             "Sugerowane Słowa Kluczowe i Semantyka",
             "Proponowana Struktura Artykułu (Szkic)",
             "Sekcja FAQ (Pytania i Odpowiedzi)",
-            "Wnioski i Rekomendacje", # Zachowujemy na liście preferowanej kolejności, ale zakładka pojawi się tylko jeśli Gemini ją wygeneruje (co przy obecnym prompcie się nie stanie) LUB jeśli dodalibyśmy ją ręcznie.
-            "Analizowane Źródła" # Sekcja dodawana ręcznie
+            "Wnioski i Rekomendacje",
+            "Analizowane Źródła"
         ]
 
-        # Tworzymy listę tytułów zakładek, które faktycznie istnieją w naszym słowniku report_sections,
-        # zachowując preferowaną kolejność.
         actual_tab_titles = [
-            title for title in preferred_tab_order if title in report_sections and report_sections[title].strip() # Dodatkowo sprawdzamy, czy treść nie jest pusta po strip()
+            title for title in preferred_tab_order if title in report_sections and report_sections[title].strip()
         ]
 
-        # Tworzenie zakładek dynamicznie na podstawie ISTNIEJĄCYCH i NIEPUSTYCH sekcji
         if actual_tab_titles:
-             # Usuwamy sekcję "Analizowane Źródła" z listy, żeby dodać ją na końcu niezależnie od kolejności z preferred_tab_order
-             # Robimy to, żeby mieć pewność, że jest ZAWSZE na końcu.
              sources_tab_title = "Analizowane Źródła"
              if sources_tab_title in actual_tab_titles:
                   actual_tab_titles.remove(sources_tab_title)
 
+             tabs_to_create = actual_tab_titles
+             if sources_tab_title in report_sections and report_sections[sources_tab_title].strip():
+                 tabs_to_create = actual_tab_titles + [sources_tab_title]
 
-             tabs = st.tabs(actual_tab_titles + [sources_tab_title] if sources_tab_title in report_sections and report_sections[sources_tab_title].strip() else actual_tab_titles) # Dodajemy zakładkę źródeł na końcu, jeśli ma treść
+             if tabs_to_create: # Upewnij się, że jest co wyświetlić
+                tabs = st.tabs(tabs_to_create)
+                tab_title_map = {i: title for i, title in enumerate(tabs_to_create)}
 
-
-             # Przypisujemy tytuły do indeksów zakładek w celu poprawnego wyświetlania
-             # Tworzymy mapowanie indeks -> tytuł
-             tab_title_map = {i: title for i, title in enumerate(actual_tab_titles + [sources_tab_title] if sources_tab_title in report_sections and report_sections[sources_tab_title].strip() else actual_tab_titles)}
-
-
-             for i in range(len(tabs)):
-                 with tabs[i]:
-                     current_title = tab_title_map[i]
-                     st.header(current_title) # Dodaj nagłówek w każdej zakładce dla jasności
-                     # Pobierz treść z report_sections (wiemy, że klucz istnieje i nie jest pusty)
-                     st.markdown(report_sections[current_title])
+                for i in range(len(tabs)):
+                    with tabs[i]:
+                        current_title = tab_title_map[i]
+                        st.header(current_title)
+                        st.markdown(report_sections[current_title])
+             else:
+                st.warning("Brak danych do wyświetlenia w zakładkach po przetworzeniu. Sprawdź odpowiedź Gemini.")
         else:
              st.warning("Brak danych do wyświetlenia w zakładkach. Sprawdź odpowiedź Gemini. Możliwe, że API nie zwróciło żadnej treści lub wszystkie sekcje są puste.")
 
