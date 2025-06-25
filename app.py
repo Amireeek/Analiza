@@ -53,17 +53,19 @@ def get_serp_data_with_dataforseo(login, password, query, num_results=10, locati
     """
     post_data = [{"keyword": query, "location_code": location_code, "language_code": language_code, "depth": num_results}]
     headers = {'Content-Type': 'application/json'}
-    endpoint_url = "https://api.dataforseo.com/v3/serp/google/organic/live/regular" # Sprawdź, czy to poprawny endpoint dla organicznych i AI Overview
+    endpoint_url = "https://api.dataforseo.com/v3/serp/google/organic/live/regular"
 
     organic_results_list = []
     ai_overview_text_content = None
 
     try:
-        st.write(f"Wysyłanie zapytania do DataForSEO z payloadem: {json.dumps(post_data)}")
+        # Zakomentowano lub usunięto st.write dla czystszego interfejsu
+        # st.write(f"Wysyłanie zapytania do DataForSEO z payloadem: {json.dumps(post_data)}")
         response = requests.post(endpoint_url, auth=(login, password), headers=headers, json=post_data, timeout=60)
         response.raise_for_status()
         data = response.json()
-        st.write(f"Odpowiedź JSON od DataForSEO: {data}")
+        # Zakomentowano lub usunięto st.write dla czystszego interfejsu
+        # st.write(f"Odpowiedź JSON od DataForSEO: {data}")
 
         if data.get("status_code") == 20000 and data.get("tasks") and data["tasks"][0].get("result") and data["tasks"][0]["result"][0].get("items"):
             items = data["tasks"][0]["result"][0]["items"]
@@ -74,22 +76,16 @@ def get_serp_data_with_dataforseo(login, password, query, num_results=10, locati
                     link = item.get("url")
                     if title and link:
                         organic_results_list.append({'title': title, 'link': link})
-                    else:
-                        st.warning(f"Pominięto wynik organiczny z DataForSEO z powodu braku tytułu lub linku: {item}")
                 elif item_type == "ai_overview":
-                    # Struktura AI Overview może być różna. Trzeba sprawdzić JSON.
-                    # Najpierw spróbujmy 'text', potem 'description', albo bardziej złożone pola.
-                    # W DataForSEO 'ai_overview' może mieć pole 'text' lub listę 'paragraphs'
                     if item.get("text"):
                         ai_overview_text_content = item.get("text")
-                    elif item.get("description"): # Alternatywne pole
+                    elif item.get("description"):
                          ai_overview_text_content = item.get("description")
                     elif item.get("paragraphs") and isinstance(item.get("paragraphs"), list):
                         ai_overview_text_content = "\n\n".join([p.get("text", "") for p in item.get("paragraphs") if p.get("text")])
-
-                    if ai_overview_text_content:
-                        st.info(f"Znaleziono AI Overview: {ai_overview_text_content[:200]}...") # Pokaż fragment
-                    # Zwykle jest jeden AI Overview, więc po znalezieniu można by przerwać szukanie go, ale pętla i tak idzie dalej dla organicznych.
+                    
+                    # if ai_overview_text_content: # Już nie potrzebujemy tego logu tutaj
+                        # st.info(f"Znaleziono AI Overview: {ai_overview_text_content[:200]}...")
         else:
             status_message = data.get("status_message", "Nieznany błąd.")
             tasks_error = ""
@@ -104,19 +100,23 @@ def get_serp_data_with_dataforseo(login, password, query, num_results=10, locati
     except requests.exceptions.RequestException as e:
         st.error(f"🛑 Błąd podczas komunikacji z API DataForSEO: {e}")
         if hasattr(e, 'response') and e.response is not None:
-            st.text_area("Treść odpowiedzi błędu DataForSEO (debug):", e.response.text, height=150)
+            # Zakomentowano, aby nie wyświetlać użytkownikowi pełnej treści błędu API
+            # st.text_area("Treść odpowiedzi błędu DataForSEO (debug):", e.response.text, height=150)
+            pass # Można dodać logowanie do pliku zamiast wyświetlania
     except Exception as e:
         st.error(f"🛑 Nieoczekiwany błąd podczas przetwarzania odpowiedzi z DataForSEO: {e}")
         if 'response' in locals() and hasattr(response, 'text'):
-            st.text_area("Surowa odpowiedź DataForSEO (debug):", response.text, height=150)
+            # Zakomentowano
+            # st.text_area("Surowa odpowiedź DataForSEO (debug):", response.text, height=150)
+            pass
     
-    return {'organic_results': [], 'ai_overview_text': None} # Zwróć puste struktury w razie błędu
+    return {'organic_results': [], 'ai_overview_text': None}
 
 
 @st.cache_data
 def scrape_and_clean_content(url_to_scrape, scrapingbee_api_key):
     """Pobiera i czyści treść ze strony używając ScrapingBee."""
-    # (bez zmian w tej funkcji)
+    # (bez zmian)
     try:
         response = requests.get(
             url='https://app.scrapingbee.com/api/v1/',
@@ -138,7 +138,7 @@ def scrape_and_clean_content(url_to_scrape, scrapingbee_api_key):
 
 
 @st.cache_data(show_spinner="AI analizuje treść...")
-def analyze_content_with_gemini(all_content, keyword_phrase, ai_overview_text=None): # Dodano parametr ai_overview_text
+def analyze_content_with_gemini(all_content, keyword_phrase, ai_overview_text=None):
     """Analizuje zagregowaną treść, AI Overview i generuje raport z Gemini."""
     if not all_content and not ai_overview_text:
         return "Brak treści (artykułów i AI Overview) do analizy przez AI."
@@ -151,16 +151,25 @@ def analyze_content_with_gemini(all_content, keyword_phrase, ai_overview_text=No
 ---
 {ai_overview_text}
 ---
-**Wskazówki, jak zwiększyć szansę na pojawienie się w AI Overviews (SGE):**
-(Na podstawie powyższego AI Overview (jeśli dostępne) oraz ogólnych zasad SEO, podaj 5-7 konkretnych, praktycznych wskazówek dla twórców treści. Skup się na jakości, E-E-A-T, strukturyzacji danych, bezpośrednich odpowiedziach na pytania, użyciu list, tabel, autorytatywnych źródeł itp.)
+**Analiza i Wskazówki SEO, aby pojawić się w AI Overviews (SGE):**
+Na podstawie powyższego tekstu AI Overview oraz ogólnych zasad SEO, zidentyfikuj kluczowe elementy i sformułowania, które przyczyniły się do jego wygenerowania. Następnie, sformułuj 5-7 konkretnych, praktycznych wskazówek dla twórców treści, jak mogą zoptymalizować swoje materiały, aby zwiększyć szansę na wykorzystanie ich treści przez Google w AI Overviews. Wskazówki powinny dotyczyć:
+- Bezpośredniego odpowiadania na pytanie kluczowe.
+- Użycia klarownego języka i struktury.
+- Podkreślenia wiarygodności i ekspertyzy (E-E-A-T).
+- Ew. wykorzystania danych strukturalnych, list, tabel.
+- Identyfikacji luk lub możliwości ulepszenia w stosunku do tego, co pokazało AI Overview.
 """
     else:
         ai_overview_section = f"""
 ### 6. Wskazówki SEO dla AI Overviews (SGE)
 **Dla frazy "{keyword_phrase}" nie znaleziono AI Overview w analizowanych wynikach.**
 
-**Ogólne wskazówki, jak zwiększyć szansę na pojawienie się w AI Overviews (SGE):**
-(Podaj 5-7 konkretnych, praktycznych wskazówek dla twórców treści. Skup się na jakości, E-E-A-T, strukturyzacji danych, bezpośrednich odpowiedziach na pytania, użyciu list, tabel, autorytatywnych źródeł itp. Wskazówki powinny być uniwersalne, skoro nie ma konkretnego AI Overview do analizy.)
+Mimo braku konkretnego przykładu AI Overview do analizy dla tej frazy, podaj 5-7 ogólnych, ale praktycznych wskazówek SEO, które pomagają twórcom treści zwiększyć szansę na pojawienie się ich materiałów w AI Overviews generowanych przez Google. Skup się na:
+- Tworzeniu treści wysokiej jakości, wyczerpująco odpowiadających na intencje użytkowników.
+- Demonstrowaniu ekspertyzy, autorytatywności i wiarygodności (E-E-A-T).
+- Stosowaniu danych strukturalnych (Schema.org), tam gdzie to relevantne.
+- Formułowaniu jasnych, zwięzłych odpowiedzi na popularne pytania.
+- Używaniu list, tabel i dobrze zorganizowanych nagłówków do prezentacji informacji.
 """
 
     prompt = f"""
@@ -191,7 +200,17 @@ Treść z artykułów TOP10 do analizy (jeśli dostępna):
 """
     try:
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
-        response = model.generate_content(prompt)
+        # Zwiększenie max_output_tokens, jeśli raporty są obcinane
+        generation_config = genai.types.GenerationConfig(
+            # candidate_count=1, # Zazwyczaj nie trzeba zmieniać
+            # stop_sequences=None, # Zazwyczaj nie trzeba zmieniać
+            max_output_tokens=8000, # Zwiększono z domyślnych 2048 dla gemini-flash
+            # temperature=0.9, # Można eksperymentować (0.0-1.0)
+            # top_p=1.0, # Można eksperymentować
+            # top_k=40 # Można eksperymentować
+        )
+        response = model.generate_content(prompt, generation_config=generation_config)
+
         if hasattr(response, 'text') and response.text:
              return response.text
         else:
@@ -207,7 +226,7 @@ Treść z artykułów TOP10 do analizy (jeśli dostępna):
 
 def parse_report(report_text):
     """Dzieli pełny raport na sekcje do wyświetlenia w zakładkach."""
-    # (bez zmian w tej funkcji)
+    # (bez zmian)
     if not report_text: return {}
     sections = {}
     pattern = r"###\s*(?:\d+\.\s*)?(.*?)\n(.*?)(?=\n###\s*|$|\Z)"
@@ -221,7 +240,7 @@ def parse_report(report_text):
 # ==============================================================================
 # Krok 5: Interfejs Użytkownika i główna logika
 # ==============================================================================
-
+# (bez zmian w tej sekcji w stosunku do ostatniej pełnej wersji)
 keyword = st.text_input("Wprowadź frazę kluczową, którą chcesz przeanalizować:", placeholder="np. jak dbać o buty skórzane")
 
 if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
@@ -239,7 +258,7 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
     with st.spinner("Przeprowadzam pełny audyt... To może potrwać kilka minut."):
         st.info("Etap 1/4: Pobieranie i filtrowanie wyników z Google (przez DataForSEO)...")
         
-        serp_data = get_serp_data_with_dataforseo( # Zmieniono nazwę funkcji
+        serp_data = get_serp_data_with_dataforseo(
             DATAFORSEO_LOGIN, 
             DATAFORSEO_PASSWORD, 
             keyword,
@@ -255,13 +274,11 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
             top_results = serp_data.get('organic_results', [])
             ai_overview_text_from_serp = serp_data.get('ai_overview_text')
         
-        if not top_results and ai_overview_text_from_serp is None: # Jeśli nie ma ani wyników organicznych, ani AI overview
+        if not top_results and ai_overview_text_from_serp is None:
             st.error("Nie udało się pobrać żadnych danych SERP (ani wyników organicznych, ani AI Overview) z DataForSEO. Audyt przerwany.")
             st.stop()
-        if not top_results: # Jeśli nie ma wyników organicznych, ale może być AI Overview
+        if not top_results:
             st.warning(f"Nie znaleziono żadnych wyników organicznych TOP 10 dla frazy: '{keyword}' przy użyciu DataForSEO. Analiza będzie kontynuowana, jeśli znaleziono AI Overview.")
-            # Nie przerywamy, bo możemy mieć AI Overview do analizy
-
 
         BANNED_DOMAINS = [
             "youtube.com", "pinterest.", "instagram.com", "facebook.com",
@@ -275,8 +292,11 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
              st.error("Po filtracji nie pozostały żadne artykuły do analizy i nie znaleziono AI Overview.")
              st.stop()
         elif not filtered_results and ai_overview_text_from_serp:
-             st.info("Nie znaleziono artykułów do analizy po filtracji, ale znaleziono AI Overview. Przechodzę do analizy AI.")
-        elif filtered_results: # Mamy przefiltrowane wyniki organiczne
+             if ai_overview_text_from_serp: # Dodatkowe sprawdzenie, czy faktycznie jest AI Overview
+                st.info("Nie znaleziono artykułów do analizy po filtracji, ale znaleziono AI Overview. Przechodzę do analizy AI.")
+             # Jeśli nie ma ani artykułów, ani AI Overview (choć teoretycznie powinno być wyłapane wcześniej)
+             # else: st.error("Brak danych do analizy.") st.stop() # Można dodać, ale logika wyżej powinna to pokryć
+        elif filtered_results:
              if len(top_results) > len(filtered_results):
                   st.info(f"Pominięto {len(top_results) - len(filtered_results)} wyników organicznych (np. social media, sklepy), analizuję {len(filtered_results)} znalezionych artykułów.")
              st.subheader("Analizowane adresy URL (po filtracji):")
@@ -284,11 +304,11 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
                  display_title = result.get('title', result.get('link', f"Brak tytułu dla {result.get('link', 'nieznany URL')}"))
                  st.write(f"{i}. [{display_title}]({result.get('link', '#')})")
 
-
         all_articles_content_str = ""
-        if filtered_results: # Tylko jeśli są artykuły do scrapowania
+        successful_sources_list = [] # Inicjalizacja listy na źródła
+        if filtered_results:
             st.info("Etap 2/4: Pobieranie treści ze stron przez Scraping API (ScrapingBee)...")
-            all_articles_content_list, successful_sources = [], []
+            all_articles_content_list, successful_sources_list = [], [] # Przypisanie do zmiennej lokalnej
             progress_bar = st.progress(0)
             for i, result in enumerate(filtered_results):
                 url = result.get('link')
@@ -296,7 +316,7 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
                     content = scrape_and_clean_content(url, SCRAPINGBEE_API_KEY)
                     if content:
                         all_articles_content_list.append(content)
-                        successful_sources.append({'title': result.get('title', 'Brak tytułu'), 'link': url})
+                        successful_sources_list.append({'title': result.get('title', 'Brak tytułu'), 'link': url})
                     progress_bar.progress((i + 1) / len(filtered_results))
             progress_bar.empty()
 
@@ -306,13 +326,12 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
                 st.success(f"✅ Pomyślnie pobrano treści z {len(all_articles_content_list)} stron.")
                 all_articles_content_str = "\n\n---\n\n".join(all_articles_content_list)
         
-        # Nawet jeśli nie ma treści artykułów, ale jest AI Overview, kontynuuj
         if not all_articles_content_str and not ai_overview_text_from_serp:
             st.error("Brak treści artykułów oraz brak AI Overview do analizy. Audyt przerwany.")
             st.stop()
 
         st.info("Etap 3/4: Generowanie kompleksowego raportu przez AI (Gemini)...")
-        full_report = analyze_content_with_gemini(all_articles_content_str, keyword, ai_overview_text_from_serp) # Przekazujemy AI Overview
+        full_report = analyze_content_with_gemini(all_articles_content_str, keyword, ai_overview_text_from_serp)
 
         if not full_report:
              st.error("Generowanie raportu przez Gemini nie powiodło się.")
@@ -321,14 +340,12 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         st.info("Etap 4/4: Formatowanie wyników...")
         report_sections = parse_report(full_report)
         
-        # Sekcja źródeł - teraz tylko jeśli były artykuły
-        if 'successful_sources' in locals() and successful_sources: # Sprawdź, czy lista źródeł istnieje i nie jest pusta
-            sources_text = "\n".join([f"- [{source['title']}]({source['link']})" for source in successful_sources])
+        if successful_sources_list:
+            sources_text = "\n".join([f"- [{source['title']}]({source['link']})" for source in successful_sources_list])
             report_sections["Analizowane Źródła Artykułów"] = "Poniżej lista adresów URL artykułów, których treść została pomyślnie pobrana i przeanalizowana przez AI:\n" + sources_text
-        elif not filtered_results and ai_overview_text_from_serp: # Jeśli nie było artykułów, ale był AI Overview
+        elif not filtered_results and ai_overview_text_from_serp:
             report_sections["Analizowane Źródła Artykułów"] = "Nie analizowano treści żadnych zewnętrznych artykułów (brak wyników po filtracji lub błąd pobierania). Analiza bazowała głównie na AI Overview."
-        else: # Jeśli nie było ani artykułów, ani AI overview (choć to powinno być wyłapane wcześniej)
-             report_sections["Analizowane Źródła Artykułów"] = "Nie analizowano treści żadnych zewnętrznych artykułów."
+        # Nie dodajemy sekcji źródeł, jeśli nie było ani artykułów, ani AI overview (powinno być wyłapane wcześniej)
 
 
         st.balloons()
@@ -339,26 +356,33 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
             "Kluczowe Punkty Wspólne", "Unikalne i Wyróżniające Się Elementy",
             "Sugerowane Słowa Kluczowe i Semantyka", "Proponowana Struktura Artykułu (Szkic)",
             "Sekcja FAQ (Pytania i Odpowiedzi)",
-            "Analiza AI Overview i Wskazówki SEO", # Nowa sekcja
-            "Wskazówki SEO dla AI Overviews (SGE)", # Alternatywna nazwa, jeśli nie było AI Overview
-            "Analizowane Źródła Artykułów" # Zmieniono nazwę
+            "Analiza AI Overview i Wskazówki SEO", 
+            "Wskazówki SEO dla AI Overviews (SGE)", 
+            "Analizowane Źródła Artykułów"
         ]
         
         actual_tab_titles = []
+        temp_tab_titles = [] # Tymczasowa lista do obsługi logiki AI Overview
         for title in preferred_tab_order:
-            # Sprawdzamy obie możliwe nazwy dla sekcji AI Overview
-            if title == "Analiza AI Overview i Wskazówki SEO" and title in report_sections and report_sections[title].strip():
-                actual_tab_titles.append(title)
-            elif title == "Wskazówki SEO dla AI Overviews (SGE)" and title in report_sections and report_sections[title].strip():
-                actual_tab_titles.append(title)
-            elif title != "Analiza AI Overview i Wskazówki SEO" and title != "Wskazówki SEO dla AI Overviews (SGE)" and title in report_sections and report_sections[title].strip():
-                 actual_tab_titles.append(title)
-        
-        # Upewnij się, że "Analizowane Źródła Artykułów" jest na końcu, jeśli istnieje
+            if title in report_sections and report_sections[title].strip():
+                # Specjalna logika dla tytułów związanych z AI Overview
+                if title == "Analiza AI Overview i Wskazówki SEO":
+                    # Dodaj tylko jeśli faktycznie znaleziono AI Overview (sprawdź po obecności tekstu AI Overview w sekcji)
+                    if "Pobrany tekst AI Overview" in report_sections[title]:
+                        temp_tab_titles.append(title)
+                elif title == "Wskazówki SEO dla AI Overviews (SGE)":
+                    # Dodaj tylko jeśli NIE znaleziono AI Overview
+                    if "nie znaleziono AI Overview" in report_sections[title]:
+                         temp_tab_titles.append(title)
+                elif title != "Analizowane Źródła Artykułów": # Wszystkie inne oprócz źródeł
+                    temp_tab_titles.append(title)
+
+        # Dodaj zakładkę źródeł na końcu, jeśli istnieje
         sources_tab_title_final = "Analizowane Źródła Artykułów"
-        if sources_tab_title_final in actual_tab_titles:
-            actual_tab_titles.remove(sources_tab_title_final)
-            actual_tab_titles.append(sources_tab_title_final)
+        if sources_tab_title_final in report_sections and report_sections[sources_tab_title_final].strip():
+            actual_tab_titles = temp_tab_titles + [sources_tab_title_final]
+        else:
+            actual_tab_titles = temp_tab_titles
 
 
         if actual_tab_titles:
