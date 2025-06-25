@@ -4,22 +4,18 @@
 # Krok 0: Instalacja bibliotek
 # ==============================================================================
 # Jeśli uruchamiasz to lokalnie, upewnij się, że masz te biblioteki zainstalowane:
-# pip install streamlit requests trafilatura google-generativeai google-api-python-client scrapingbee
+# pip install streamlit requests trafilatura google-generativeai scrapingbee
 # Jeśli uruchamiasz w Streamlit Cloud, dodaj je do pliku requirements.txt
 
 # ==============================================================================
 # Krok 1: Import bibliotek
 # ==============================================================================
-import streamlit as st  # <--- TEN IMPORT JEST KLUCZOWY I MUSI BYĆ NA POCZĄTKU
+import streamlit as st
 import requests
 import re
 from trafilatura import extract
 import google.generativeai as genai
-from urllib.parse import urlencode as encode_query_params # Ten import jest potrzebny dla nowej funkcji
-
-# googleapiclient.discovery nie jest już bezpośrednio potrzebne do pobierania SERP
-# from googleapiclient.discovery import build
-
+from urllib.parse import urlencode as encode_query_params
 
 # ==============================================================================
 # Krok 2: Konfiguracja strony Streamlit
@@ -51,41 +47,51 @@ except Exception as e:
 # Krok 4: Funkcje Backendowe
 # ==============================================================================
 
-@st.cache_data # Cache'owanie wyników wyszukiwania
-def get_top_10_google_results_with_scrapingbee(api_key_sb, query, num_results=10, country_code='pl', language_code='pl'):
+@st.cache_data
+def get_top_10_google_results_with_scrapingbee(api_key_sb, query, num_results=10, country_code_google='pl', language_code_google='pl'):
     """Pobiera wyniki wyszukiwania Google używając API ScrapingBee poprzez scrapowanie URL-a Google SERP."""
 
     sanitized_query = query.strip()
     if sanitized_query.endswith('?'):
         sanitized_query = sanitized_query[:-1].strip()
 
-    # 1. Skonstruuj URL wyszukiwania Google
     google_search_params = {
         'q': sanitized_query,
-        'hl': language_code,
-        'gl': country_code,
+        'hl': language_code_google,
+        'gl': country_code_google,
         'num': str(num_results)
     }
     google_search_url = f"https://www.google.com/search?{encode_query_params(google_search_params)}"
-    st.write(f"Skonstruowany URL Google Search: {google_search_url}") # Debug
+    st.write(f"Skonstruowany URL Google Search: {google_search_url}")
 
-    # 2. Parametry dla ScrapingBee
     params_sb = {
         'api_key': api_key_sb,
         'url': google_search_url,
         'custom_google': 'true',
-        'premium_proxy': 'true',
-        'country_code': country_code,
-        # 'render_js': 'false'
+        'render_js': 'false',
+        # 'premium_proxy': 'true', # TEST 1: Spróbuj najpierw bez tego
     }
+    
+    # TEST 2: Jeśli TEST 1 zawiedzie, odkomentuj poniższą linię
+    params_sb['premium_proxy'] = 'true' 
+    # TEST 3: Jeśli TEST 2 zawiedzie, odkomentuj również poniższą linię
+    # params_sb['country_code'] = country_code_google
+
+
     endpoint_url = 'https://app.scrapingbee.com/api/v1/'
 
     try:
-        st.write(f"Wysyłanie zapytania do ScrapingBee z parametrami: {params_sb}") # Debug
+        st.write(f"Wysyłanie zapytania do ScrapingBee z parametrami: {params_sb}")
         response = requests.get(endpoint_url, params=params_sb, timeout=90)
+        
+        if response.status_code == 500:
+            st.error(f"🛑 Otrzymano błąd 500 Internal Server Error od ScrapingBee. Surowa odpowiedź:")
+            st.text_area("Odpowiedź serwera (debug):", response.text, height=150)
+            return None
+
         response.raise_for_status()
         data = response.json()
-        st.write(f"Odpowiedź JSON od ScrapingBee: {data}") # Debug
+        st.write(f"Odpowiedź JSON od ScrapingBee: {data}")
 
         if 'organic_results' in data and data['organic_results']:
             results = []
@@ -111,6 +117,8 @@ def get_top_10_google_results_with_scrapingbee(api_key_sb, query, num_results=10
         safe_params_for_log = params_sb.copy()
         safe_params_for_log['api_key'] = "REDACTED_API_KEY"
         st.error(f"🛑 Błąd podczas komunikacji z API ScrapingBee: {e}. Parametry wysłane (z zredagowanym kluczem): {safe_params_for_log}")
+        if hasattr(e, 'response') and e.response is not None:
+            st.text_area("Treść odpowiedzi błędu (debug):", e.response.text, height=150)
         return None
     except Exception as e:
         st.error(f"🛑 Nieoczekiwany błąd podczas przetwarzania odpowiedzi z ScrapingBee (np. błąd JSON): {e}")
@@ -218,6 +226,7 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
     with st.spinner("Przeprowadzam pełny audyt... To może potrwać kilka minut."):
         st.info("Etap 1/4: Pobieranie i filtrowanie wyników z Google (przez ScrapingBee)...")
         
+        # Wywołanie funkcji z domyślnymi parametrami dla Google (pl, pl)
         top_results = get_top_10_google_results_with_scrapingbee(SCRAPINGBEE_API_KEY, keyword)
 
         if top_results is None:
