@@ -13,9 +13,11 @@
 import streamlit as st
 import requests
 import re
-from trafilatura import extract # Upewnij się, że masz tę bibliotekę
+from trafilatura import extract
 import google.generativeai as genai
-from googleapiclient.discovery import build # Upewnij się, że masz tę bibliotekę
+# googleapiclient.discovery nie będzie już potrzebne do pobierania SERP,
+# ale zostawiam na wypadek innych potencjalnych zastosowań Google API
+from googleapiclient.discovery import build
 
 
 # ==============================================================================
@@ -29,22 +31,26 @@ st.markdown("Narzędzie do tworzenia kompletnych strategii contentowych na podst
 # ==============================================================================
 # Krok 3: Obsługa Kluczy API ze Streamlit Secrets
 # ==============================================================================
-# WAŻNE: Upewnij się, że skonfigurowałeś WSZYSTKIE 4 klucze jako sekrety w Streamlit
 try:
-    # Ręcznie wpisz te linie, aby uniknąć problemów z niewidocznymi znakami!
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-    SEARCH_API_KEY = st.secrets["SEARCH_API_KEY"]
-    SEARCH_ENGINE_ID = st.secrets["SEARCH_ENGINE_ID"]
-    SCRAPINGBEE_API_KEY = st.secrets["SCRAPINGBEE_API_KEY"] # Klucz ScrapingBee
+    # SEARCH_API_KEY i SEARCH_ENGINE_ID nie będą już używane do pobierania SERP,
+    # ale mogą być przydatne, jeśli zdecydujesz się na inne funkcje Google API.
+    # Jeśli są niepotrzebne, można je usunąć z secrets i z tego bloku.
+    if "SEARCH_API_KEY" in st.secrets: # Opcjonalne ładowanie
+        SEARCH_API_KEY = st.secrets["SEARCH_API_KEY"]
+    if "SEARCH_ENGINE_ID" in st.secrets: # Opcjonalne ładowanie
+        SEARCH_ENGINE_ID = st.secrets["SEARCH_ENGINE_ID"]
+    SCRAPINGBEE_API_KEY = st.secrets["SCRAPINGBEE_API_KEY"]
 
     genai.configure(api_key=GEMINI_API_KEY)
-    # Nie konfigurujemy od razu Google Search API, bo 'build' jest używane w funkcji
-
-    #st.success("✅ Klucze API załadowane pomyślnie.") # Można odkomentować dla debugowania
 
 except KeyError as e:
-    st.error(f"🛑 Błąd konfiguracji sekretów! Nie znaleziono wymaganego sekretu: {e}. Upewnij się, że skonfigurowałeś WSZYSTKIE 4 sekrety (GEMINI_API_KEY, SEARCH_API_KEY, SEARCH_ENGINE_ID, SCRAPINGBEE_API_KEY) w ustawieniach Streamlit.")
-    st.stop() # Zatrzymaj działanie aplikacji, jeśli klucze nie są skonfigurowane
+    missing_key = str(e).strip("'")
+    if missing_key == "SCRAPINGBEE_API_KEY" or missing_key == "GEMINI_API_KEY":
+        st.error(f"🛑 Błąd konfiguracji sekretów! Nie znaleziono wymaganego sekretu: {missing_key}. Upewnij się, że skonfigurowałeś przynajmniej GEMINI_API_KEY i SCRAPINGBEE_API_KEY w ustawieniach Streamlit.")
+        st.stop()
+    else:
+        st.warning(f"Uwaga: Nie znaleziono opcjonalnego sekretu: {missing_key}. Jeśli nie planujesz używać funkcji z nim związanych, możesz to zignorować.")
 except Exception as e:
     st.error(f"🛑 Wystąpił nieoczekiwany błąd podczas ładowania kluczy: {e}")
     st.stop()
@@ -54,51 +60,63 @@ except Exception as e:
 # Krok 4: Funkcje Backendowe
 # ==============================================================================
 
-@st.cache_data # Cache'owanie wyników wyszukiwania Google
-def get_top_10_results(api_key, cse_id, query):
-    """Pobiera 10 najlepszych wyników wyszukiwania Google dla danej frazy."""
+@st.cache_data # Cache'owanie wyników wyszukiwania
+def get_top_10_google_results_with_scrapingbee(api_key_sb, query, num_results=10, country_code='pl', language_code='pl'):
+    """Pobiera wyniki wyszukiwania Google używając API ScrapingBee."""
+    params = {
+        'api_key': api_key_sb,
+        'search': query,
+        'nb_results': str(num_results),
+        'country_code': country_code,
+        'language': language_code, # Dodano parametr języka
+        # Możesz dodać inne parametry zgodnie z dokumentacją ScrapingBee, np. 'device': 'desktop'
+    }
     try:
-        # Używamy wersji developera, która wymaga klucza API
-        service = build("customsearch", "v1", developerKey=api_key)
-        # num=10 ogranicza wyniki do 10, gl/hl=pl ustawia region i język na polski
-        res = service.cse().list(q=query, cx=cse_id, num=10, gl='pl', hl='pl').execute()
+        response = requests.get('https://app.scrapingbee.com/api/v1/', params=params, timeout=60) # Zwiększony timeout
+        response.raise_for_status() # Rzuci wyjątek dla błędów HTTP
+        data = response.json()
 
-        if 'items' not in res or not res['items']:
-            # st.warning("Nie znaleziono żadnych wyników dla tej frazy.") # Komunikat będzie niżej w UI
+        if 'organic_results' in data and data['organic_results']:
+            results = []
+            for item in data['organic_results']:
+                # Sprawdzamy, czy klucze 'title' i 'link' istnieją
+                title = item.get('title')
+                link = item.get('link')
+                if title and link:
+                    results.append({'title': title, 'link': link})
+                else:
+                    st.warning(f"Pominięto wynik z ScrapingBee z powodu braku tytułu lub linku: {item}")
+            return results
+        else:
+            st.warning(f"ScrapingBee nie zwróciło 'organic_results' dla zapytania: {query}. Odpowiedź: {data.get('error', data)}")
             return []
 
-        # Zwracamy listę słowników z tytułem i linkiem
-        return [{'title': item.get('title'), 'link': item.get('link')} for item in res['items']]
-    except Exception as e:
-        st.error(f"🛑 Błąd podczas pobierania wyników z Google Search API: {e}")
-        # st.info("Upewnij się, że Twój SEARCH_API_KEY jest poprawny i włączyłeś Custom Search API w Google Cloud.") # Można dodać więcej wskazówek
-        return None # Zwróć None w przypadku błędu, aby go obsłużyć dalej
+    except requests.exceptions.Timeout:
+        st.error(f"🛑 Przekroczono czas oczekiwania na odpowiedź od ScrapingBee dla zapytania: {query}")
+        return None
+    except requests.exceptions.RequestException as e:
+        st.error(f"🛑 Błąd podczas komunikacji z API ScrapingBee: {e}")
+        return None
+    except Exception as e: # Ogólny wyjątek dla np. problemów z JSON
+        st.error(f"🛑 Nieoczekiwany błąd podczas przetwarzania odpowiedzi z ScrapingBee: {e}")
+        return None
 
 
-@st.cache_data # Cache'owanie pobranej treści
+@st.cache_data
 def scrape_and_clean_content(url_to_scrape, scrapingbee_api_key):
-    """Pobiera i czyści treść ze strony używając ScrapingBee."""
+    """Pobiera i czyści treść ze strony używając ScrapingBee (bez zmian)."""
     try:
         response = requests.get(
             url='https://app.scrapingbee.com/api/v1/',
-            params={'api_key': scrapingbee_api_key, 'url': url_to_scrape, 'premium_proxy': 'true', 'block_resources': 'false'}, # Dodano block_resources
-            timeout=90 # Zwiększono timeout na wypadek wolnych stron
+            params={'api_key': scrapingbee_api_key, 'url': url_to_scrape, 'premium_proxy': 'true', 'block_resources': 'false'},
+            timeout=90
         )
-        response.raise_for_status() # Rzuca wyjątek dla kodów błędów HTTP (4xx, 5xx)
-
-        # Używamy trafilatury do ekstrakcji czystego tekstu artykułu
-        # Upewnij się, że treść response.text jest odpowiednia (np. zakodowana w UTF-8)
-        extracted_text = extract(response.text, include_comments=False, include_tables=False, include_images=False) # Wyłączono obrazy
-
+        response.raise_for_status()
+        extracted_text = extract(response.text, include_comments=False, include_tables=False, include_images=False)
         if not extracted_text:
-             #st.warning(f"Trafilatura nie zwróciła treści dla {url_to_scrape}") # Debug
              return None
-
-        # Opcjonalnie: dodatkowe czyszczenie tekstu (np. usunięcie nadmiernych białych znaków)
         cleaned_text = re.sub(r'\s+', ' ', extracted_text).strip()
-
-        return cleaned_text if len(cleaned_text) > 100 else None # Zwróć None jeśli treść jest za krótka
-
+        return cleaned_text if len(cleaned_text) > 100 else None
     except requests.exceptions.RequestException as e:
         st.warning(f"⚠️ Nie udało się pobrać treści z {url_to_scrape} (ScrapingBee): {e}")
         return None
@@ -107,13 +125,11 @@ def scrape_and_clean_content(url_to_scrape, scrapingbee_api_key):
         return None
 
 
-@st.cache_data(show_spinner="AI analizuje treść...") # Cache'owanie wyników Gemini z innym spinnerem
+@st.cache_data(show_spinner="AI analizuje treść...")
 def analyze_content_with_gemini(all_content, keyword_phrase):
-    """Analizuje zagregowaną treść i generuje raport z Gemini."""
+    """Analizuje zagregowaną treść i generuje raport z Gemini (bez zmian)."""
     if not all_content:
         return "Brak treści do analizy przez AI."
-
-    # === ZMODYFIKOWANY PROMPT ===
     prompt = f"""
 Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Twoim zadaniem jest przeanalizowanie dostarczonej treści z czołowych artykułów dla frazy "{keyword_phrase}" i na tej podstawie wygenerowanie kompleksowego raportu w formacie Markdown.
 
@@ -139,214 +155,138 @@ Pamiętaj, aby Twoja odpowiedź była TYLKO treścią raportu w formacie Markdow
 Treść do analizy:
 {all_content}
 """
-    # === KONIEC ZMODYFIKOWANEGO PROMPTU ===
-
     try:
-        # Używamy modelu gemini-1.5-flash-latest dla szybkości i kosztów
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
         response = model.generate_content(prompt)
-
-        # Sprawdzenie, czy odpowiedź zawiera treść
         if hasattr(response, 'text') and response.text:
              return response.text
         else:
              st.warning("⚠️ Gemini zwróciło pustą odpowiedź lub błąd. Spróbuj ponownie lub zmień prompt.")
-             # Dodatkowe informacje o błędzie z API Gemini
-             if hasattr(response, 'prompt_feedback'):
-                 st.write("Feedback z promptu:", response.prompt_feedback)
+             if hasattr(response, 'prompt_feedback'): st.write("Feedback z promptu:", response.prompt_feedback)
              if hasattr(response, 'candidates') and response.candidates:
-                  if response.candidates[0].finish_reason:
-                    st.write("Przyczyna zakończenia generacji przez API:", response.candidates[0].finish_reason)
-                  if hasattr(response.candidates[0], 'safety_ratings'):
-                     st.write("Oceny bezpieczeństwa:", response.candidates[0].safety_ratings)
-
+                  if response.candidates[0].finish_reason: st.write("Przyczyna zakończenia:", response.candidates[0].finish_reason)
+                  if hasattr(response.candidates[0], 'safety_ratings'): st.write("Oceny bezpieczeństwa:", response.candidates[0].safety_ratings)
              return None
-
-
     except Exception as e:
         st.error(f"🛑 Błąd podczas komunikacji z Gemini API: {e}")
-        # st.info("Upewnij się, że Twój GEMINI_API_KEY jest poprawny i masz dostęp do modelu 'gemini-1.5-flash-latest'.") # Wskazówka
         return None
 
-
-# --- Funkcja do parsowania raportu (bez zmian) ---
-# Regex nadal działa, bo format nagłówków ### numer. Nazwa sekcji jest zachowany
 def parse_report(report_text):
-    """Dzieli pełny raport na sekcje do wyświetlenia w zakładkach."""
+    """Dzieli pełny raport na sekcje do wyświetlenia w zakładkach (bez zmian)."""
     if not report_text: return {}
     sections = {}
-    # Wyrażenie regularne do znalezienia treści pomiędzy nagłówkami ###
     pattern = r"###\s*(?:\d+\.\s*)?(.*?)\n(.*?)(?=\n###\s*|$|\Z)"
-
     matches = re.findall(pattern, report_text, re.DOTALL)
-
     for match in matches:
         title = match[0].strip()
         content = match[1].strip()
-        if title:
-            sections[title] = content
-
+        if title: sections[title] = content
     return sections
-
 
 # ==============================================================================
 # Krok 5: Interfejs Użytkownika i główna logika
 # ==============================================================================
 
-# Pole formularza do wprowadzenia frazy
 keyword = st.text_input("Wprowadź frazę kluczową, którą chcesz przeanalizować:", placeholder="np. jak dbać o buty skórzane")
 
-# Przycisk do uruchomienia analizy
 if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
     if not keyword:
         st.warning("Proszę wpisać frazę kluczową.")
         st.stop()
 
-    # Sprawdzenie, czy klucze są dostępne przed rozpoczęciem
-    # Ta logika została już częściowo obsłużona przez blok try/except na górze
-    if 'GEMINI_API_KEY' not in st.secrets or 'SEARCH_API_KEY' not in st.secrets or 'SEARCH_ENGINE_ID' not in st.secrets or 'SCRAPINGBEE_API_KEY' not in st.secrets:
-         st.error("Błąd: Nie wszystkie klucze API są skonfigurowane w Streamlit Secrets.")
+    if 'SCRAPINGBEE_API_KEY' not in st.secrets or 'GEMINI_API_KEY' not in st.secrets:
+         st.error("Błąd: Klucze SCRAPINGBEE_API_KEY lub GEMINI_API_KEY nie są skonfigurowane w Streamlit Secrets.")
          st.stop()
 
     with st.spinner("Przeprowadzam pełny audyt... To może potrwać kilka minut."):
+        st.info("Etap 1/4: Pobieranie i filtrowanie wyników z Google (przez ScrapingBee)...")
+        
+        # Używamy nowej funkcji z kluczem ScrapingBee
+        top_results = get_top_10_google_results_with_scrapingbee(SCRAPINGBEE_API_KEY, keyword)
 
-        # Etap 1: Pobieranie wyników z Google
-        st.info("Etap 1/4: Pobieranie i filtrowanie wyników z Google...")
-
-        # ========================================================================
-        # >>> POCZĄTEK ZMODYFIKOWANEJ LOGIKI WYSZUKIWANIA <<<
-        # Używamy frazy bezpośrednio, tak jak ją podał użytkownik
-        # ========================================================================
-        st.info(f"Wyszukiwanie dla wprowadzonej frazy: '{keyword}'")
-        top_results = get_top_10_results(SEARCH_API_KEY, SEARCH_ENGINE_ID, keyword)
-        # ========================================================================
-        # >>> KONIEC ZMODYFIKOWANEJ LOGIKI WYSZUKIWANIA <<<
-        # ========================================================================
-
+        if top_results is None: # Obsługa błędu krytycznego z API
+            st.error("Wystąpił krytyczny błąd podczas pobierania wyników z ScrapingBee. Audyt przerwany.")
+            st.stop()
         if not top_results:
-            st.error(f"Nie znaleziono żadnych wyników TOP 10 dla wprowadzonej frazy: '{keyword}'. Spróbuj użyć innej frazy lub sprawdź, czy fraza jest poprawna.")
+            st.error(f"Nie znaleziono żadnych wyników TOP 10 dla frazy: '{keyword}' przy użyciu ScrapingBee. Spróbuj innej frazy.")
             st.stop()
 
-        # Filtrowanie wyników (jak w Twoim kodzie)
-        # Rozszerzona lista domen do banowania
         BANNED_DOMAINS = [
             "youtube.com", "pinterest.", "instagram.com", "facebook.com",
             "olx.pl", "allegro.pl", "twitter.com", "tiktok.com",
-            "wikipedia.org", "słownik.pl", "encyklopedia.", "forum.", # Dodano przykładowe filtry ogólne
-            ".gov", ".edu", # Często pomijane w analizach komercyjnych
-            "otodom.pl", "gratka.pl", "domiporta.pl" # Przykłady dla fraz nieruchomościowych
+            "wikipedia.org", "słownik.pl", "encyklopedia.", "forum.",
+            ".gov", ".edu", "otodom.pl", "gratka.pl", "domiporta.pl"
         ]
-        # Filtrujemy wyniki, upewniając się, że link istnieje i nie jest None/pusty
-        filtered_results = [r for r in top_results if r and r.get('link') and not any(b in r['link'].lower() for b in BANNED_DOMAINS)] # .lower() dla bezpieczeństwa
+        filtered_results = [r for r in top_results if r and r.get('link') and not any(b in r['link'].lower() for b in BANNED_DOMAINS)]
 
         if not filtered_results:
-            st.error("Po filtracji nie pozostały żadne artykuły do analizy (usunięto strony wideo, social media, sklepy, fora, Wikipedia, ogłoszenia, itp.).")
+            st.error("Po filtracji nie pozostały żadne artykuły do analizy.")
             st.stop()
 
-        # Informacja o filtracji
         if len(top_results) > len(filtered_results):
              st.info(f"Pominięto {len(top_results) - len(filtered_results)} wyników, analizuję {len(filtered_results)} znalezionych artykułów.")
 
         st.subheader("Analizowane adresy URL (po filtracji):")
         for i, result in enumerate(filtered_results, 1):
-             # Dodano zabezpieczenie get() na wypadek braku tytułu, wyświetlamy link jako fallback
             display_title = result.get('title', result.get('link', f"Brak tytułu dla {result.get('link', 'nieznany URL')}"))
             st.write(f"{i}. [{display_title}]({result.get('link', '#')})")
 
-
-        # Etap 2: Scraping treści
         st.info("Etap 2/4: Pobieranie treści ze stron przez Scraping API...")
         all_articles_content, successful_sources = [], []
-        # Używamy klucza ScrapingBee w wywołaniu funkcji
         progress_bar = st.progress(0)
         for i, result in enumerate(filtered_results):
              url = result.get('link')
-             if url: # Upewnij się, że URL istnieje po filtracji
+             if url:
                  content = scrape_and_clean_content(url, SCRAPINGBEE_API_KEY)
                  if content:
                      all_articles_content.append(content)
                      successful_sources.append({'title': result.get('title', 'Brak tytułu'), 'link': url})
                  progress_bar.progress((i + 1) / len(filtered_results))
-        progress_bar.empty() # Ukryj pasek postępu po zakończeniu
+        progress_bar.empty()
 
         if not all_articles_content:
-            st.error("Nie udało się pobrać treści z żadnej ze stron przy użyciu ScrapingBee. Sprawdź klucz API ScrapingBee, limity lub dostępność stron. Czasami problemem są też bardzo rozbudowane strony.")
+            st.error("Nie udało się pobrać treści z żadnej ze stron. Sprawdź limity ScrapingBee lub dostępność stron.")
             st.stop()
-
         st.success(f"✅ Pomyślnie pobrano treści z {len(all_articles_content)} stron.")
 
-
-        # Etap 3: Analiza AI
         st.info("Etap 3/4: Generowanie kompleksowego raportu przez AI...")
-        aggregated_content = "\n\n---\n\n".join(all_articles_content) # Połącz pobrane treści
-        # Przekazujemy zagregowaną treść i ORYGINALNĄ frazę kluczową (keyword) do Gemini
+        aggregated_content = "\n\n---\n\n".join(all_articles_content)
         full_report = analyze_content_with_gemini(aggregated_content, keyword)
 
         if not full_report:
-             st.error("Generowanie raportu przez Gemini nie powiodło się. Sprawdź logi lub spróbuj z inną frazą/kluczami API.")
+             st.error("Generowanie raportu przez Gemini nie powiodło się.")
              st.stop()
 
-
-        # Etap 4: Formatowanie wyników
         st.info("Etap 4/4: Formatowanie wyników...")
-        # Parsowanie odpowiedzi Gemini na sekcje
         report_sections = parse_report(full_report)
-
-        # === RĘCZNE DODANIE SEKcji Z ANALIZOWANYMI ŹRÓDŁAMI ===
-        # Zawsze dodajemy tę sekcję do słownika report_sections
         sources_text = "\n".join([f"- [{source['title']}]({source['link']})" for source in successful_sources])
         report_sections["Analizowane Źródła"] = "Poniżej lista adresów URL, których treść została pomyślnie pobrana i przeanalizowana przez AI:\n" + sources_text
 
-
         st.balloons()
         st.success("✅ Audyt SEO gotowy!")
-
         st.markdown(f"--- \n## Audyt SEO i plan treści dla frazy: '{keyword}'")
 
-        # --- Interfejs z zakładkami: DYNAMICZNE TWORZENIE ZAKŁADEK ---
-        # Definiujemy preferowaną kolejność wszystkich MOŻLIWYCH zakładek
-        # Ta lista decyduje o kolejności wyświetlania, jeśli sekcja istnieje.
         preferred_tab_order = [
-            "Kluczowe Punkty Wspólne",
-            "Unikalne i Wyróżniające Się Elementy",
-            "Sugerowane Słowa Kluczowe i Semantyka",
-            "Proponowana Struktura Artykułu (Szkic)",
-            "Sekcja FAQ (Pytania i Odpowiedzi)",
-            "Wnioski i Rekomendacje",
-            "Analizowane Źródła"
+            "Kluczowe Punkty Wspólne", "Unikalne i Wyróżniające Się Elementy",
+            "Sugerowane Słowa Kluczowe i Semantyka", "Proponowana Struktura Artykułu (Szkic)",
+            "Sekcja FAQ (Pytania i Odpowiedzi)", "Wnioski i Rekomendacje", "Analizowane Źródła"
         ]
-
-        actual_tab_titles = [
-            title for title in preferred_tab_order if title in report_sections and report_sections[title].strip()
-        ]
-
+        actual_tab_titles = [title for title in preferred_tab_order if title in report_sections and report_sections[title].strip()]
         if actual_tab_titles:
              sources_tab_title = "Analizowane Źródła"
-             if sources_tab_title in actual_tab_titles:
-                  actual_tab_titles.remove(sources_tab_title)
-
+             if sources_tab_title in actual_tab_titles: actual_tab_titles.remove(sources_tab_title)
              tabs_to_create = actual_tab_titles
              if sources_tab_title in report_sections and report_sections[sources_tab_title].strip():
                  tabs_to_create = actual_tab_titles + [sources_tab_title]
-
-             if tabs_to_create: # Upewnij się, że jest co wyświetlić
+             if tabs_to_create:
                 tabs = st.tabs(tabs_to_create)
                 tab_title_map = {i: title for i, title in enumerate(tabs_to_create)}
-
                 for i in range(len(tabs)):
                     with tabs[i]:
                         current_title = tab_title_map[i]
                         st.header(current_title)
                         st.markdown(report_sections[current_title])
-             else:
-                st.warning("Brak danych do wyświetlenia w zakładkach po przetworzeniu. Sprawdź odpowiedź Gemini.")
-        else:
-             st.warning("Brak danych do wyświetlenia w zakładkach. Sprawdź odpowiedź Gemini. Możliwe, że API nie zwróciło żadnej treści lub wszystkie sekcje są puste.")
-
-
-    # Koniec bloku if st.button("🚀 Wygeneruj..."):
+             else: st.warning("Brak danych do wyświetlenia w zakładkach po przetworzeniu.")
+        else: st.warning("Brak danych do wyświetlenia w zakładkach.")
 else:
-    # Komunikat początkowy przed kliknięciem przycisku
-    if keyword:
-         st.info(f"Wprowadzono frazę: '{keyword}'. Kliknij przycisk powyżej, aby rozpocząć analizę.")
-    # else: komunikat z text_input placeholder wystarczy
+    if keyword: st.info(f"Wprowadzono frazę: '{keyword}'. Kliknij przycisk powyżej, aby rozpocząć analizę.")
