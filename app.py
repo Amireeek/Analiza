@@ -102,7 +102,7 @@ def scrape_and_clean_content(url_to_scrape, scrapingbee_api_key):
         if not extracted_text: return None
         cleaned_text = re.sub(r'\s+', ' ', extracted_text).strip()
         return cleaned_text if len(cleaned_text) > 100 else None
-    except: return None # Uproszczona obsługa błędów dla zwięzłości
+    except: return None
 
 @st.cache_data(show_spinner="AI analizuje treść...")
 def analyze_content_with_gemini(all_content, keyword_phrase, ai_overview_text=None):
@@ -110,7 +110,6 @@ def analyze_content_with_gemini(all_content, keyword_phrase, ai_overview_text=No
     if not all_content and not ai_overview_text:
         return "Brak treści (artykułów i AI Overview) do analizy przez AI."
 
-    # --- ZMIANA TUTAJ: Modyfikacja instrukcji dla sekcji AI Overview ---
     ai_overview_instructions = ""
     if ai_overview_text:
         ai_overview_instructions = f"""
@@ -121,16 +120,15 @@ Przeanalizuj poniższy tekst AI Overview wygenerowany przez Google dla frazy "{k
 Na podstawie tej analizy oraz Twojej wiedzy o SEO, sformułuj 5-7 konkretnych, praktycznych wskazówek dla twórców treści. Wskazówki powinny wyjaśniać, jakie elementy w ich własnych treściach (np. bezpośrednie odpowiedzi, struktura, użyte sformułowania, dane, przykłady) mogłyby zwiększyć prawdopodobieństwo, że Google wykorzysta ich materiały do generowania podobnych AI Overviews. Skup się na tym, co można zrobić, aby treść była "SGE-friendly".
 """
     else:
-        # ZMIANA: Nawet jeśli nie ma AI Overview, poproś o wskazówki na podstawie analizy TOP10
         ai_overview_instructions = f"""
 Dla frazy "{keyword_phrase}" nie znaleziono AI Overview w dostarczonych danych. 
 Mimo to, na podstawie analizy treści z artykułów TOP10 (dostarczonych w sekcji "Treść z artykułów TOP10 do analizy"), zidentyfikuj cechy tych treści, które mogłyby być korzystne z punktu widzenia generowania AI Overviews (SGE) przez Google. Podaj 5-7 praktycznych wskazówek SEO, jak na podstawie tych najlepszych artykułów z TOP10 można tworzyć treści "SGE-friendly". Skup się na jakości, strukturze, bezpośrednich odpowiedziach, E-E-A-T i byciu pomocnym dla użytkownika, czerpiąc inspirację z analizowanych artykułów.
 """
 
     prompt = f"""
-Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Twoim zadaniem jest przeanalizowanie dostarczonej treści z czołowych artykułów dla frazy "{keyword_phrase}" oraz potencjalnie treści AI Overview. Na tej podstawie wygeneruj kompleksowy raport w formacie Markdown.
+Jesteś światowej klasy analitykiem SEO i strategiem content marketingu, specjalizującym się w tworzeniu wyczerpujących i bardzo szczegółowych konspektów artykułów. Twoim zadaniem jest przeanalizowanie dostarczonej treści z czołowych artykułów dla frazy "{keyword_phrase}" oraz potencjalnie treści AI Overview. Na tej podstawie wygeneruj kompleksowy raport w formacie Markdown.
 
-Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagłówków `### numer. Nazwa sekcji` i **żadnych innych nagłówków H3 w tytułach sekcji raportu**:
+Raport MUSI być podzielony na DOKŁADNIE następujące sekcje, używając nagłówków `### numer. Nazwa sekcji` i **żadnych innych nagłówków H3 w tytułach sekcji raportu**:
 
 ### 1. Kluczowe Punkty Wspólne
 (Wypunktuj tematy, podtematy, kluczowe informacje, perspektywy i style narracji, które powtarzają się w większości analizowanych tekstów z TOP10. Skup się na tym, co jest standardem i skonstruuj wytyczne dla copywritera)
@@ -142,7 +140,7 @@ Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagł
 (Na podstawie analizy treści konkurencji z TOP10, stwórz listę 10-12 najważniejszych słów kluczowych, fraz długoogonowych i pojęć semantycznie powiązanych. Pogrupuj je tematycznie, jeśli to ułatwia zrozumienie. Wskaż intencję wyszukiwania dla frazy głównej.)
 
 ### 4. Proponowana Struktura Artykułu (Szkic)
-(Zaproponuj idealną, rozbudowaną strukturę nowego artykułu w formacie Markdown, bazując na analizie TOP10. Struktura powinna zawierać **minimum 4-5 głównych sekcji (nagłówki H2)**. Dla **każdej z tych głównych sekcji zaproponuj minimum 2-3 bardziej szczegółowe podpunkty (nagłówki H3)**. Dbaj o logiczny przepływ i kompleksowe pokrycie tematu. Uwzględnij kluczowe punkty, unikalne elementy i semantykę z analizy.)
+(Zaproponuj BARDZO ROZBUDOWANĄ i SZCZEGÓŁOWĄ strukturę nowego artykułu w formacie Markdown, bazując na analizie TOP10. Struktura MUSI zawierać **DOKŁADNIE 5 (pięć) głównych sekcji (nagłówki H2)**. Dla **KAŻDEJ z tych pięciu głównych sekcji (H2) zaproponuj DOKŁADNIE 3 (trzy) bardziej szczegółowe podpunkty (nagłówki H3)**. Nagłówki powinny być angażujące i precyzyjnie opisywać zawartość danego fragmentu. Dbaj o logiczny przepływ i kompleksowe pokrycie tematu. Uwzględnij kluczowe punkty, unikalne elementy i semantykę z analizy. Przykładowy tytuł artykułu: [Zaproponuj 2-3 chwytliwe tytuły dla artykułu o frazie "{keyword_phrase}"])
 
 ### 5. Sekcja FAQ (Pytania i Odpowiedzi)
 (Stwórz listę 4-5 najczęstszych pytań, na które odpowiadają konkurenci z TOP10, w stylu 'People Also Ask'. Podaj 2-3 zdaniowe bezpośrednie odpowiedzi na te pytania, bazując na analizowanej treści. Odpowiedzi napisz pod pytaniami)
@@ -156,7 +154,7 @@ Treść z artykułów TOP10 do analizy (jeśli dostępna):
 """
     try:
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
-        generation_config = genai.types.GenerationConfig(max_output_tokens=8192)
+        generation_config = genai.types.GenerationConfig(max_output_tokens=8192) # Maksymalny dla flash
         response = model.generate_content(prompt, generation_config=generation_config)
         if hasattr(response, 'text') and response.text: return response.text
         else:
@@ -185,6 +183,7 @@ def parse_report(report_text):
 # ==============================================================================
 # Krok 5: Interfejs Użytkownika i główna logika
 # ==============================================================================
+# (bez zmian w tej sekcji)
 keyword = st.text_input("Wprowadź frazę kluczową, którą chcesz przeanalizować:", placeholder="np. jak dbać o buty skórzane")
 
 if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
@@ -192,7 +191,6 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         st.warning("Proszę wpisać frazę kluczową.")
         st.stop()
 
-    # Sprawdzenie kluczy API (bez zmian)
     if 'SCRAPINGBEE_API_KEY' not in st.secrets or \
        'GEMINI_API_KEY' not in st.secrets or \
        'DATAFORSEO_LOGIN' not in st.secrets or \
@@ -239,7 +237,7 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
                     content = scrape_and_clean_content(url, SCRAPINGBEE_API_KEY)
                     if content:
                         all_articles_content_list.append(content)
-                        successful_sources_list.append({'title': result.get('title', 'Brak tytułu'), 'link': url})
+                        # successful_sources_list.append({'title': result.get('title', 'Brak tytułu'), 'link': url}) # Usunięto, bo zakładka źródeł jest usunięta
                     progress_bar.progress((i + 1) / len(filtered_results))
             progress_bar.empty()
             if not all_articles_content_list: st.warning("Nie udało się pobrać treści z żadnej ze stron.")
@@ -260,19 +258,10 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         st.info("Etap 4/4: Formatowanie wyników...")
         report_sections = parse_report(full_report)
         
-        # Usunięto dodawanie sekcji "Analizowane Źródła Artykułów" do report_sections
-        # Jeśli chcesz ją z powrotem, odkomentuj i dostosuj logikę poniżej.
-        # if successful_sources_list:
-        #     sources_text = "\n".join([f"- [{source['title']}]({source['link']})" for source in successful_sources_list])
-        #     report_sections["Analizowane Źródła Artykułów"] = "Poniżej lista adresów URL artykułów...\n" + sources_text
-        # elif not filtered_results and ai_overview_text_from_serp:
-        #     report_sections["Analizowane Źródła Artykułów"] = "Nie analizowano treści zewnętrznych artykułów..."
-
         st.balloons()
         st.success("✅ Audyt SEO gotowy!")
         st.markdown(f"--- \n## Audyt SEO i plan treści dla frazy: '{keyword}'")
 
-        # --- ZMIANA TUTAJ: Usunięto "Analizowane Źródła Artykułów" z preferowanej kolejności ---
         preferred_tab_order = [
             "Kluczowe Punkty Wspólne", "Unikalne i Wyróżniające Się Elementy",
             "Sugerowane Słowa Kluczowe i Semantyka", "Proponowana Struktura Artykułu (Szkic)",
