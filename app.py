@@ -277,21 +277,3 @@ else:
     if keyword:
          st.info(f"Wprowadzono frazę: '{keyword}'. Kliknij przycisk powyżej, aby rozpocząć analizę.")
 
-Krok 2: Jak wymusić odświeżenie analizy
-
-Teraz, gdy kod jest poprawiony, musisz upewnić się, że Streamlit nie użyje starego wyniku. Masz dwie opcje:
-
-Opcja A (Najprostsza): Użyj innej frazy kluczowej.
-Wpisz w pole do analizy frazę, której jeszcze nie używałeś, np. "najlepszy ekspres do kawy" zamiast "jak dbać o buty". Ponieważ argumenty funkcji analyze_content_with_gemini będą inne (keyword_phrase się zmieni), Streamlit będzie musiał wykonać ją od nowa.
-
-Opcja B (Uniwersalna): Wyczyść pamięć podręczną (cache).
-
-Uruchom aplikację.
-
-W prawym górnym rogu okna aplikacji kliknij na ikonę "hamburgera" (trzy poziome kreski).
-
-Wybierz z menu opcję "Clear cache".
-
-Po wyczyszczeniu cache'u uruchom analizę dla dowolnej frazy (nawet tej samej co wcześniej). Aplikacja będzie zmuszona wykonać wszystkie obliczenia od nowa, używając już poprawionego kodu.
-
-Po wykonaniu tych dwóch kroków (aktualizacja kodu i odświeżenie cache/zmiana frazy), powinieneś otrzymać znacznie bardziej rozbudowaną i zgodną z oczekiwaniami strukturę artykułu.
