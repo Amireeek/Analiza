@@ -3,7 +3,8 @@
 # ==============================================================================
 # Krok 0: Instalacja bibliotek
 # ==============================================================================
-# pip install streamlit requests trafilatura google-generativeai scrapingbee pandas tabulate
+# pip install streamlit requests trafilatura google-generativeai scrapingbee pandas
+# Usunięto tabulate z komentarza, bo na razie go nie używamy
 # ==============================================================================
 # Krok 1: Import bibliotek
 # ==============================================================================
@@ -15,7 +16,7 @@ import google.generativeai as genai
 from urllib.parse import urlencode as encode_query_params
 import json
 import time
-import pandas as pd
+# import pandas as pd # Na razie nie potrzebujemy pandas
 
 # ==============================================================================
 # Krok 2: Konfiguracja strony Streamlit
@@ -73,78 +74,7 @@ def get_serp_data_with_dataforseo(login, password, query, num_results=10, locati
         st.error(f"🛑 Błąd DataForSEO (SERP): {e}")
         return []
 
-def clean_keyword_for_dataforseo(keyword):
-    """Usuwa lub zastępuje znaki nieakceptowane przez DataForSEO Search Volume API."""
-    # Usuwamy nawiasy i ich zawartość, a także znaki specjalne, pozostawiając spacje i alfanumeryczne
-    # To jest prosta implementacja, może wymagać dostosowania
-    cleaned = re.sub(r'\(.*?\)', '', keyword) # Usuń (coś)
-    cleaned = re.sub(r'[^\w\sąćęłńóśźżĄĆĘŁŃÓŚŹŻ-]', '', cleaned, flags=re.UNICODE) # Pozostaw litery, cyfry, spacje, myślniki
-    return cleaned.strip()
-
-@st.cache_data
-def get_keyword_volumes_dataforseo(login, password, keywords_list, location_code=2616, language_code='pl'):
-    if not keywords_list: return {}
-    
-    # --- ZMIANA: Czyszczenie słów kluczowych PRZED wysłaniem do API ---
-    # Tworzymy mapowanie oryginalnego słowa na oczyszczone, aby potem móc je powiązać z wolumenem
-    original_to_cleaned_map = {kw: clean_keyword_for_dataforseo(kw) for kw in keywords_list if kw}
-    # Bierzemy tylko unikalne, oczyszczone słowa, które nie są puste
-    unique_cleaned_keywords = list(set(ckw for ckw in original_to_cleaned_map.values() if ckw))
-
-    if not unique_cleaned_keywords:
-        st.write("DEBUG: Lista unikalnych, oczyszczonych słów kluczowych jest pusta.")
-        return {}
-
-    chunk_size = 100
-    keyword_chunks = [unique_cleaned_keywords[i:i + chunk_size] for i in range(0, len(unique_cleaned_keywords), chunk_size)]
-    
-    # Ten słownik będzie przechowywał wolumeny dla OCZYSZCZONYCH słów kluczowych
-    cleaned_keyword_volumes = {} 
-    headers = {'Content-Type': 'application/json'}
-    endpoint_url = "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live"
-    
-    st.write(f"DEBUG: Będę sprawdzać wolumeny dla {len(unique_cleaned_keywords)} unikalnych oczyszczonych słów w {len(keyword_chunks)} paczkach.")
-
-    for chunk_index, chunk in enumerate(keyword_chunks):
-        post_data = [{"keywords": chunk, "location_code": location_code, "language_code": language_code}]
-        try:
-            st.write(f"DEBUG: Wysyłanie paczki {chunk_index + 1}/{len(keyword_chunks)} o wolumeny (oczyszczone): {chunk}")
-            response = requests.post(endpoint_url, auth=(login, password), headers=headers, json=post_data, timeout=60)
-            response.raise_for_status()
-            data = response.json()
-            st.write(f"DEBUG: Odpowiedź JSON (wolumeny, paczka {chunk_index + 1}) od DataForSEO: {data}")
-
-            if data.get("status_code") == 20000 and data.get("tasks") and data["tasks"][0].get("result"):
-                results = data["tasks"][0]["result"]
-                for res_item in results:
-                    keyword_from_api = res_item.get("keyword") # To będzie oczyszczone słowo
-                    search_volume = res_item.get("search_volume")
-                    if keyword_from_api:
-                        cleaned_keyword_volumes[keyword_from_api.lower()] = search_volume if search_volume is not None else "brak danych"
-            else: # Błąd na poziomie zadania DataForSEO
-                status_message = data.get("status_message", "Nieznany błąd.")
-                tasks_error = ""
-                if data.get("tasks") and data["tasks"][0].get("status_code") != 20000:
-                    tasks_error = f" Błąd zadania: {data['tasks'][0]['status_code']} - {data['tasks'][0]['status_message']}"
-                    # Jeśli błąd dotyczy nieprawidłowych znaków, oznaczamy wszystkie w paczce
-                    if data['tasks'][0].get('status_code') == 40501: # Invalid Field
-                         for kw_in_chunk in chunk:
-                            cleaned_keyword_volumes[kw_in_chunk.lower()] = "nieprawidłowe znaki"
-                st.warning(f"DataForSEO API (Search Volume, paczka {chunk_index + 1}) status: {status_message}{tasks_error}.")
-        except Exception as e:
-            st.error(f"🛑 Błąd DataForSEO (Search Volume, paczka {chunk_index + 1}): {e}")
-            for kw_in_chunk in chunk:
-                cleaned_keyword_volumes[kw_in_chunk.lower()] = "błąd pobierania"
-        time.sleep(0.3)
-
-    # --- ZMIANA: Mapowanie wolumenów z powrotem na ORYGINALNE słowa kluczowe ---
-    final_volumes_for_original_keywords = {}
-    for original_kw, cleaned_kw in original_to_cleaned_map.items():
-        final_volumes_for_original_keywords[original_kw] = cleaned_keyword_volumes.get(cleaned_kw.lower(), "brak danych (po czyszczeniu)")
-    
-    st.write(f"DEBUG: Końcowe wolumeny dla oryginalnych słów: {final_volumes_for_original_keywords}")
-    return final_volumes_for_original_keywords
-
+# Usunięto funkcję get_keyword_volumes_dataforseo
 
 @st.cache_data
 def scrape_and_clean_content(url_to_scrape, scrapingbee_api_key):
@@ -185,11 +115,19 @@ def generate_unikalne_elementy(all_content, keyword_phrase):
     prompt = f"""Jako analityk SEO, przeanalizuj poniższą treść z artykułów TOP10 dla frazy "{keyword_phrase}". Twoim zadaniem jest TYLKO wygenerowanie sekcji "### 2. Unikalne i Wyróżniające Się Elementy". Wypunktuj nietypowe, oryginalne, innowacyjne lub szczególnie wartościowe informacje, dane, przykłady, case studies, infografiki (opisz co przedstawiają) lub perspektywy, które pojawiły się tylko w niektórych źródłach z TOP10 i mogą stanowić przewagę konkurencyjną dla nowego artykułu. Odpowiedź musi być TYLKO treścią tej sekcji, zaczynając od nagłówka `### 2. Unikalne i Wyróżniające Się Elementy`. Treść do analizy:\n{all_content if all_content else "Brak treści z artykułów TOP10 do analizy."}"""
     return generate_gemini_response(prompt, "2. Unikalne i Wyróżniające Się Elementy")
 
-def generate_słowa_kluczowe_initial_for_table(all_content, keyword_phrase):
-    """Generuje WSTĘPNĄ listę słów kluczowych przez Gemini, z myślą o tabeli."""
-    # (bez zmian)
-    prompt = f"""Jako analityk SEO, przeanalizuj poniższą treść z artykułów TOP10 dla frazy "{keyword_phrase}". Twoim zadaniem jest TYLKO wygenerowanie sekcji "### 3. Sugerowane Słowa Kluczowe i Semantyka". Na podstawie analizy treści konkurencji z TOP10, stwórz listę 10-15 najważniejszych słów kluczowych i fraz długoogonowych. Możesz je pogrupować tematycznie, używając nagłówków H4 (#### Nazwa Grupy) jeśli to konieczne. Każde słowo kluczowe lub fraza powinno być w osobnej linii, poprzedzone myślnikiem (np. `- Moje słowo kluczowe`). Nie dodawaj żadnych dodatkowych opisów ani intencji wyszukiwania bezpośrednio przy słowach kluczowych na liście. Zachowaj czystą listę fraz. Wskaż ogólną intencję wyszukiwania dla frazy głównej "{keyword_phrase}" w jednym zdaniu na końcu sekcji, po liście słów. Odpowiedź musi być TYLKO treścią tej sekcji, zaczynając od nagłówka `### 3. Sugerowane Słowa Kluczowe i Semantyka`. Treść do analizy:\n{all_content if all_content else "Brak treści z artykułów TOP10 do analizy."}"""
-    return generate_gemini_response(prompt, "3. Sugerowane Słowa Kluczowe i Semantyka (Wstępne)")
+def generate_słowa_kluczowe_semantyka(all_content, keyword_phrase): # Zmieniono nazwę z powrotem
+    """Generuje sekcję słów kluczowych i semantyki przez Gemini."""
+    prompt = f"""Jako analityk SEO, przeanalizuj poniższą treść z artykułów TOP10 dla frazy "{keyword_phrase}".
+Twoim zadaniem jest TYLKO wygenerowanie sekcji "### 3. Sugerowane Słowa Kluczowe i Semantyka".
+Na podstawie analizy treści konkurencji z TOP10, stwórz listę 10-15 najważniejszych słów kluczowych, fraz długoogonowych i pojęć semantycznie powiązanych. Pogrupuj je tematycznie, jeśli to ułatwia zrozumienie (używając np. nagłówków H4 - #### Nazwa Grupy).
+Formatuj listę słów kluczowych jako standardowe punkty Markdown (np. `- Słowo kluczowe`).
+Wskaż ogólną intencję wyszukiwania dla frazy głównej "{keyword_phrase}" w jednym lub dwóch zdaniach na końcu sekcji, po liście słów.
+Odpowiedź musi być TYLKO treścią tej sekcji, zaczynając od nagłówka `### 3. Sugerowane Słowa Kluczowe i Semantyka`.
+
+Treść do analizy:
+{all_content if all_content else "Brak treści z artykułów TOP10 do analizy."}
+"""
+    return generate_gemini_response(prompt, "3. Sugerowane Słowa Kluczowe i Semantyka")
 
 def generate_struktura_artykulu(all_content, keyword_phrase):
     # (bez zmian)
@@ -215,7 +153,6 @@ def parse_report(report_text):
 # ==============================================================================
 # Krok 5: Interfejs Użytkownika i główna logika
 # ==============================================================================
-# (Zmiany głównie w sposobie generowania i składania sekcji 3)
 keyword = st.text_input("Wprowadź frazę kluczową, którą chcesz przeanalizować:", placeholder="np. jak dbać o buty skórzane")
 
 if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
@@ -232,9 +169,7 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         filtered_results = [r for r in top_results if r and r.get('link') and not any(b in r['link'].lower() for b in BANNED_DOMAINS)]
         if not filtered_results: st.error("Po filtracji brak artykułów do analizy."); st.stop()
         if len(top_results) > len(filtered_results): st.info(f"Pominięto {len(top_results) - len(filtered_results)} wyników, analizuję {len(filtered_results)}.")
-        # st.subheader("Analizowane adresy URL (po filtracji):") # Można odkomentować, jeśli potrzebne
-        # for i, r in enumerate(filtered_results, 1): st.write(f"{i}. [{r.get('title', r.get('link'))}]({r.get('link', '#')})")
-
+        
         all_articles_content_str = ""
         if filtered_results:
             st.info("Etap 2/4: Pobieranie treści ze stron (ScrapingBee)...")
@@ -250,80 +185,37 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         if not all_articles_content_str and not filtered_results: st.error("Brak treści do analizy."); st.stop()
 
         st.info("Etap 3/4: Generowanie raportu przez AI (Gemini)...")
-        report_parts_dict = {} # Użyjemy słownika, aby łatwiej składać raport
+        report_parts_dict = {}
         report_progress = st.progress(0)
         
-        sections_order = [
-            "1. Kluczowe Punkty Wspólne",
-            "2. Unikalne i Wyróżniające Się Elementy",
-            "3. Sugerowane Słowa Kluczowe i Semantyka",
-            "4. Proponowana Struktura Artykułu (Szkic)",
-            "5. Sekcja FAQ (Pytania i Odpowiedzi)"
-        ]
-        total_steps_for_progress = len(sections_order)
-
+        # --- ZMIANA: Uproszczona lista sekcji do generowania ---
+        sections_to_generate_map = {
+            "1. Kluczowe Punkty Wspólne": lambda: generate_kluczowe_punkty(all_articles_content_str, keyword),
+            "2. Unikalne i Wyróżniające Się Elementy": lambda: generate_unikalne_elementy(all_articles_content_str, keyword),
+            "3. Sugerowane Słowa Kluczowe i Semantyka": lambda: generate_słowa_kluczowe_semantyka(all_articles_content_str, keyword), # Używamy nowej funkcji
+            "4. Proponowana Struktura Artykułu (Szkic)": lambda: generate_struktura_artykulu(all_articles_content_str, keyword),
+            "5. Sekcja FAQ (Pytania i Odpowiedzi)": lambda: generate_faq(all_articles_content_str, keyword)
+        }
+        total_steps_for_progress = len(sections_to_generate_map)
         current_step = 0
-        for section_name_with_num in sections_order:
+
+        for section_name_with_num, generation_func in sections_to_generate_map.items():
             current_step += 1
-            clean_section_name = re.sub(r"^\d+\.\s*", "", section_name_with_num) # np. "Kluczowe Punkty Wspólne"
+            clean_section_name = re.sub(r"^\d+\.\s*", "", section_name_with_num)
             st.write(f"Generowanie: {section_name_with_num}...")
-
-            if section_name_with_num == "3. Sugerowane Słowa Kluczowe i Semantyka":
-                gemini_keywords_text = generate_słowa_kluczowe_initial_for_table(all_articles_content_str, keyword)
-                st.write(f"DEBUG: Gemini (słowa kluczowe initial):\n{gemini_keywords_text if gemini_keywords_text else 'BRAK'}")
-
-                table_data, other_text_lines, extracted_keywords_for_volume_check = [], [], []
-                if gemini_keywords_text and "Brak danych" not in gemini_keywords_text and "Błąd generowania" not in gemini_keywords_text:
-                    kw_pattern = re.compile(r"^\s*[-*]\s+(.+)$")
-                    temp_group_name = "Ogólne" # Domyślna grupa
-                    for line in gemini_keywords_text.split('\n'):
-                        if line.startswith("### 3."): continue
-                        if line.startswith("#### "): temp_group_name = line.replace("#### ","").strip(); other_text_lines.append(line); continue
-                        
-                        match = kw_pattern.match(line)
-                        if match:
-                            kw = match.group(1).strip()
-                            if kw: extracted_keywords_for_volume_check.append(kw); table_data.append({"Grupa tematyczna": temp_group_name, "Słowo kluczowe / Frazę": kw, "Szac. wyszukań/mc": "_pobieranie..._"})
-                        elif line.strip(): other_text_lines.append(line.strip())
-                
-                section_content = f"{section_name_with_num}\n" # Zacznij od nagłówka
-                if table_data:
-                    st.write(f"Pobieranie wolumenów dla {len(extracted_keywords_for_volume_check)} fraz...")
-                    keyword_volumes_map = get_keyword_volumes_dataforseo(DATAFORSEO_LOGIN, DATAFORSEO_PASSWORD, extracted_keywords_for_volume_check)
-                    for row in table_data:
-                        row["Szac. wyszukań/mc"] = keyword_volumes_map.get(row["Słowo kluczowe / Frazę"], "brak danych") # Używamy oryginalnego słowa z tabeli
-                    
-                    df = pd.DataFrame(table_data)
-                    section_content += df.to_markdown(index=False) + "\n\n"
-                else: section_content += "Nie udało się wygenerować lub wyekstrahować słów kluczowych do tabeli.\n\n"
-                if other_text_lines: section_content += "\n".join(other_text_lines)
-                report_parts_dict[clean_section_name] = section_content
-
-            elif section_name_with_num == "1. Kluczowe Punkty Wspólne":
-                report_parts_dict[clean_section_name] = generate_kluczowe_punkty(all_articles_content_str, keyword)
-            elif section_name_with_num == "2. Unikalne i Wyróżniające Się Elementy":
-                report_parts_dict[clean_section_name] = generate_unikalne_elementy(all_articles_content_str, keyword)
-            elif section_name_with_num == "4. Proponowana Struktura Artykułu (Szkic)":
-                report_parts_dict[clean_section_name] = generate_struktura_artykulu(all_articles_content_str, keyword)
-            elif section_name_with_num == "5. Sekcja FAQ (Pytania i Odpowiedzi)":
-                report_parts_dict[clean_section_name] = generate_faq(all_articles_content_str, keyword)
-            
+            report_parts_dict[clean_section_name] = generation_func()
             report_progress.progress(current_step / total_steps_for_progress)
             time.sleep(0.1)
         
-        full_report_str = "\n\n".join(report_parts_dict.get(re.sub(r"^\d+\.\s*", "", s_name), "") for s_name in sections_order)
+        full_report_str = "\n\n".join(report_parts_dict.values()) # Łączymy wartości słownika
         report_progress.empty()
 
         if not full_report_str or all("Brak danych" in p or "Błąd generowania" in p for p in report_parts_dict.values()):
              st.error("Generowanie raportu nie powiodło się."); st.stop()
 
         st.info("Etap 4/4: Formatowanie wyników...")
-        # Parse_report nie jest już tak kluczowy, bo mamy report_parts_dict, ale może się przydać do spójności
         report_sections_from_parse = parse_report(full_report_str) 
         
-        # Użyjemy report_parts_dict do wyświetlania, bo mamy tam już ładnie sformatowane sekcje
-        # A parse_report może mieć problemy z nowym formatowaniem sekcji 3
-
         st.balloons(); st.success("✅ Audyt SEO gotowy!")
         st.markdown(f"--- \n## Audyt SEO i plan treści dla frazy: '{keyword}'")
 
@@ -331,18 +223,17 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         
         actual_tabs_to_display = []
         for clean_title_for_tab in preferred_tab_order_display:
-            if clean_title_for_tab in report_parts_dict and report_parts_dict[clean_title_for_tab].strip():
-                 # Usuwamy nagłówek H3 z treści, bo będzie on tytułem zakładki
-                content_for_tab = re.sub(rf"^\s*###\s*(?:\d+\.\s*)?{re.escape(clean_title_for_tab)}\s*\n", "", report_parts_dict[clean_title_for_tab], flags=re.IGNORECASE)
-                actual_tabs_to_display.append((clean_title_for_tab, content_for_tab))
+            # Używamy report_sections_from_parse, bo ma już czyste tytuły jako klucze
+            if clean_title_for_tab in report_sections_from_parse and report_sections_from_parse[clean_title_for_tab].strip():
+                actual_tabs_to_display.append((clean_title_for_tab, report_sections_from_parse[clean_title_for_tab]))
         
         if actual_tabs_to_display:
             tab_titles_only = [title for title, _ in actual_tabs_to_display]
             tabs = st.tabs(tab_titles_only)
             for i, (tab_title, tab_content) in enumerate(actual_tabs_to_display):
                 with tabs[i]: 
-                    st.header(tab_title) # To jest już H2 dzięki Streamlit Tabs
-                    st.markdown(tab_content)
+                    st.header(tab_title)
+                    st.markdown(tab_content) # Wyświetlamy już sparsowaną treść sekcji
         else: st.warning("Brak danych do wyświetlenia w zakładkach.")
 else:
     if keyword: st.info(f"Wprowadzono frazę: '{keyword}'. Kliknij przycisk powyżej, aby rozpocząć analizę.")
