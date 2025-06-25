@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 
 # ==============================================================================
@@ -29,22 +30,15 @@ st.markdown("Narzędzie do tworzenia kompletnych strategii contentowych na podst
 # ==============================================================================
 # Krok 3: Obsługa Kluczy API ze Streamlit Secrets
 # ==============================================================================
-# WAŻNE: Upewnij się, że skonfigurowałeś WSZYSTKIE 4 klucze jako sekrety w Streamlit
 try:
-    # Ręcznie wpisz te linie, aby uniknąć problemów z niewidocznymi znakami!
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     SEARCH_API_KEY = st.secrets["SEARCH_API_KEY"]
     SEARCH_ENGINE_ID = st.secrets["SEARCH_ENGINE_ID"]
-    SCRAPINGBEE_API_KEY = st.secrets["SCRAPINGBEE_API_KEY"] # Klucz ScrapingBee
-
+    SCRAPINGBEE_API_KEY = st.secrets["SCRAPINGBEE_API_KEY"]
     genai.configure(api_key=GEMINI_API_KEY)
-    # Nie konfigurujemy od razu Google Search API, bo 'build' jest używane w funkcji
-
-    #st.success("✅ Klucze API załadowane pomyślnie.") # Można odkomentować dla debugowania
-
 except KeyError as e:
     st.error(f"🛑 Błąd konfiguracji sekretów! Nie znaleziono wymaganego sekretu: {e}. Upewnij się, że skonfigurowałeś WSZYSTKIE 4 sekrety (GEMINI_API_KEY, SEARCH_API_KEY, SEARCH_ENGINE_ID, SCRAPINGBEE_API_KEY) w ustawieniach Streamlit.")
-    st.stop() # Zatrzymaj działanie aplikacji, jeśli klucze nie są skonfigurowane
+    st.stop()
 except Exception as e:
     st.error(f"🛑 Wystąpił nieoczekiwany błąd podczas ładowania kluczy: {e}")
     st.stop()
@@ -54,51 +48,35 @@ except Exception as e:
 # Krok 4: Funkcje Backendowe
 # ==============================================================================
 
-@st.cache_data # Cache'owanie wyników wyszukiwania Google
+@st.cache_data
 def get_top_10_results(api_key, cse_id, query):
     """Pobiera 10 najlepszych wyników wyszukiwania Google dla danej frazy."""
     try:
-        # Używamy wersji developera, która wymaga klucza API
         service = build("customsearch", "v1", developerKey=api_key)
-        # num=10 ogranicza wyniki do 10, gl/hl=pl ustawia region i język na polski
         res = service.cse().list(q=query, cx=cse_id, num=10, gl='pl', hl='pl').execute()
-
         if 'items' not in res or not res['items']:
-            # st.warning("Nie znaleziono żadnych wyników dla tej frazy.") # Komunikat będzie niżej w UI
             return []
-
-        # Zwracamy listę słowników z tytułem i linkiem
         return [{'title': item.get('title'), 'link': item.get('link')} for item in res['items']]
     except Exception as e:
         st.error(f"🛑 Błąd podczas pobierania wyników z Google Search API: {e}")
-        # st.info("Upewnij się, że Twój SEARCH_API_KEY jest poprawny i włączyłeś Custom Search API w Google Cloud.") # Można dodać więcej wskazówek
-        return None # Zwróć None w przypadku błędu, aby go obsłużyć dalej
+        return None
 
 
-@st.cache_data # Cache'owanie pobranej treści
+@st.cache_data
 def scrape_and_clean_content(url_to_scrape, scrapingbee_api_key):
     """Pobiera i czyści treść ze strony używając ScrapingBee."""
     try:
         response = requests.get(
             url='https://app.scrapingbee.com/api/v1/',
-            params={'api_key': scrapingbee_api_key, 'url': url_to_scrape, 'premium_proxy': 'true', 'block_resources': 'false'}, # Dodano block_resources
-            timeout=90 # Zwiększono timeout na wypadek wolnych stron
+            params={'api_key': scrapingbee_api_key, 'url': url_to_scrape, 'premium_proxy': 'true', 'block_resources': 'false'},
+            timeout=90
         )
-        response.raise_for_status() # Rzuca wyjątek dla kodów błędów HTTP (4xx, 5xx)
-
-        # Używamy trafilatury do ekstrakcji czystego tekstu artykułu
-        # Upewnij się, że treść response.text jest odpowiednia (np. zakodowana w UTF-8)
-        extracted_text = extract(response.text, include_comments=False, include_tables=False, include_images=False) # Wyłączono obrazy
-
+        response.raise_for_status()
+        extracted_text = extract(response.text, include_comments=False, include_tables=False, include_images=False)
         if not extracted_text:
-             #st.warning(f"Trafilatura nie zwróciła treści dla {url_to_scrape}") # Debug
              return None
-
-        # Opcjonalnie: dodatkowe czyszczenie tekstu (np. usunięcie nadmiernych białych znaków)
         cleaned_text = re.sub(r'\s+', ' ', extracted_text).strip()
-
-        return cleaned_text if len(cleaned_text) > 100 else None # Zwróć None jeśli treść jest za krótka
-
+        return cleaned_text if len(cleaned_text) > 100 else None
     except requests.exceptions.RequestException as e:
         st.warning(f"⚠️ Nie udało się pobrać treści z {url_to_scrape} (ScrapingBee): {e}")
         return None
@@ -107,83 +85,90 @@ def scrape_and_clean_content(url_to_scrape, scrapingbee_api_key):
         return None
 
 
-@st.cache_data(show_spinner="AI analizuje treść...") # Cache'owanie wyników Gemini z innym spinnerem
+@st.cache_data(show_spinner="AI analizuje treść...")
 def analyze_content_with_gemini(all_content, keyword_phrase):
     """Analizuje zagregowaną treść i generuje raport z Gemini."""
     if not all_content:
         return "Brak treści do analizy przez AI."
 
-    # === ZMIANA: ZMODYFIKOWANY PROMPT DLA LEPSZEJ STRUKTURY ARTYKUŁU ===
+    # <<< ZMIANA: JESZCZE BARDZIEJ PRECYZYJNY PROMPT >>>
     prompt = f"""
 Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Twoim zadaniem jest przeanalizowanie dostarczonej treści z czołowych artykułów dla frazy "{keyword_phrase}" i na tej podstawie wygenerowanie kompleksowego raportu w formacie Markdown.
 
-Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagłówków `### numer. Nazwa sekcji` i **żadnych innych nagłówków H3 w tytułach sekcji raportu**:
+Twoja odpowiedź MUSI być podzielona na DOKŁADNIE 5 sekcji, używając nagłówków w formacie `### [Numer]. [Nazwa Sekcji]`. Nie używaj żadnych innych nagłówków H3 w tytułach sekcji raportu.
 
 ### 1. Kluczowe Punkty Wspólne
-(Wypunktuj tematy, podtematy, kluczowe informacje, perspektywy i style narracji, które powtarzają się w większości analizowanych tekstów. Skup się na tym, co jest standardem w TOP 10 i skonstruuj wytyczne dla copywritera)
+Wypunktuj tematy, podtematy i kluczowe informacje, które powtarzają się w większości analizowanych tekstów. Skup się na tym, co jest absolutnym standardem w TOP 10 i musi znaleźć się w nowym artykule.
 
 ### 2. Unikalne i Wyróżniające Się Elementy
-(Wypunktuj nietypowe, oryginalne, innowacyjne lub szczególnie wartościowe informacje, dane, przykłady, case studies, infografiki (opisz co przedstawiają) lub perspektywy, które pojawiły się tylko w niektórych źródłach i mogą stanowić przewagę konkurencyjną dla nowego artykułu.)
+Wypunktuj nietypowe, oryginalne, innowacyjne lub szczególnie wartościowe informacje (dane, przykłady, case studies, perspektywy), które pojawiły się tylko w niektórych źródłach. To są elementy, które mogą dać przewagę konkurencyjną.
 
 ### 3. Sugerowane Słowa Kluczowe i Semantyka
-(Na podstawie analizy treści konkurencji, stwórz listę 10-12 najważniejszych słów kluczowych, fraz długoogonowych i pojęć semantycznie powiązanych. Pogrupuj je tematycznie, jeśli to ułatwia zrozumienie. Wskaż intencję wyszukiwania dla frazy głównej.)
+Stwórz listę 10-15 najważniejszych słów kluczowych, fraz długoogonowych i pojęć semantycznie powiązanych. Pogrupuj je tematycznie. Określ intencję wyszukiwania dla frazy głównej (np. informacyjna, komercyjna, transakcyjna).
 
 ### 4. Proponowana Struktura Artykułu (Szkic)
-(Zaproponuj idealną, rozbudowaną strukturę nowego artykułu. Zacznij od propozycji chwytliwego tytułu (jako nagłówek H1, np. `# Tytuł`). Następnie stwórz kompletną listę nagłówków dla artykułu, zawierającą **co najmniej 4-5 głównych sekcji (nagłówki H2, np. `## Nagłówek H2`)**. Dla każdej głównej sekcji H2, tam gdzie to merytorycznie uzasadnione, zaproponuj 2-3 podpunkty (nagłówki H3, np. `### Nagłówek H3`). Cała struktura powinna być logiczna, kompleksowo pokrywać temat i wykorzystywać wnioski z poprzednich sekcji analizy.)
+To jest najważniejsza sekcja. Stwórz ROZBUDOWANY i KOMPLETNY plan artykułu w formacie Markdown. Twoja odpowiedź dla tej sekcji MUSI zawierać:
+1.  Jeden chwytliwy tytuł (jako nagłówek H1, np. `# Tytuł Artykułu`).
+2.  Krótki, angażujący wstęp (2-3 zdania).
+3.  Listę co najmniej 4-5 głównych sekcji artykułu (jako nagłówki H2, np. `## Nagłówek Sekcji Głównej`).
+4.  Dla każdej sekcji H2, zaproponuj 2-4 podpunkty lub tematy do omówienia (jako nagłówki H3, np. `### Podpunkt w Sekcji`).
+Struktura musi być logiczna i wyczerpująca.
 
 ### 5. Sekcja FAQ (Pytania i Odpowiedzi)
-(Stwórz listę 4-5 najczęstszych pytań, na które odpowiadają konkurenci, w stylu 'People Also Ask'. Podaj 2-3 zdaniowe bezpośrednie odpowiedzi na te pytania, bazując na analizowanej treści. Odpowiedzi napisz pod pytaniami)
+Stwórz listę 4-5 najczęstszych pytań w stylu 'People Also Ask'. Pod każdym pytaniem podaj zwięzłą, 2-3 zdaniową odpowiedź opartą na przeanalizowanej treści.
 
-
-Pamiętaj, aby Twoja odpowiedź była TYLKO treścią raportu w formacie Markdown, bez żadnych dodatkowych wstępów czy podsumowań poza strukturą raportu. Cała odpowiedź musi być w języku polskim.
+Pamiętaj, aby Twoja odpowiedź była TYLKO treścią raportu w formacie Markdown, bez żadnych dodatkowych wstępów czy podsumowań poza wymaganą strukturą. Cała odpowiedź musi być w języku polskim.
 Treść do analizy:
 {all_content}
 """
     # === KONIEC ZMODYFIKOWANEGO PROMPTU ===
 
     try:
-        # Używamy modelu gemini-1.5-flash-latest dla szybkości i kosztów
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
         response = model.generate_content(prompt)
-
-        # Sprawdzenie, czy odpowiedź zawiera treść
         if hasattr(response, 'text') and response.text:
              return response.text
         else:
-             st.warning("⚠️ Gemini zwróciło pustą odpowiedź lub błąd. Spróbuj ponownie lub zmień prompt.")
-             # Dodatkowe informacje o błędzie z API Gemini
+             st.warning("⚠️ Gemini zwróciło pustą odpowiedź lub błąd. Szczegóły poniżej.")
              if hasattr(response, 'prompt_feedback'):
                  st.write("Feedback z promptu:", response.prompt_feedback)
-             if hasattr(response, 'candidates') and response.candidates:
-                  if response.candidates[0].finish_reason:
-                    st.write("Przyczyna zakończenia generacji przez API:", response.candidates[0].finish_reason)
-                  if hasattr(response.candidates[0], 'safety_ratings'):
-                     st.write("Oceny bezpieczeństwa:", response.candidates[0].safety_ratings)
-
+             if hasattr(response, 'candidates') and response.candidates and response.candidates[0].finish_reason:
+                 st.write("Przyczyna zakończenia generacji przez API:", response.candidates[0].finish_reason)
              return None
-
-
     except Exception as e:
         st.error(f"🛑 Błąd podczas komunikacji z Gemini API: {e}")
-        # st.info("Upewnij się, że Twój GEMINI_API_KEY jest poprawny i masz dostęp do modelu 'gemini-1.5-flash-latest'.") # Wskazówka
         return None
 
 
-# --- Funkcja do parsowania raportu (bez zmian) ---
+# <<< ZMIANA KRYTYCZNA: POPRAWIONY PARSER >>>
 def parse_report(report_text):
-    """Dzieli pełny raport na sekcje do wyświetlenia w zakładkach."""
+    """Dzieli pełny raport na sekcje, aby uniknąć kolizji z nagłówkami H3 w szkicu."""
     if not report_text: return {}
     sections = {}
-    # Wyrażenie regularne do znalezienia treści pomiędzy nagłówkami ###
-    pattern = r"###\s*(?:\d+\.\s*)?(.*?)\n(.*?)(?=\n###\s*|$|\Z)"
+    # Wyrażenie regularne szuka teraz nagłówka sekcji, który MUSI zaczynać się od ###, spacji, cyfry i kropki.
+    # Dzięki temu ignoruje nagłówki H3 (`### Tekst`) wewnątrz szkicu artykułu.
+    pattern = r"###\s*(\d+\.\s*.*?)\n(.*?)(?=\n###\s*\d+\.|$)"
 
-    matches = re.findall(pattern, report_text, re.DOTALL)
+    matches = re.findall(pattern, report_text, re.DOTALL | re.MULTILINE)
 
     for match in matches:
+        # Tytuł teraz zawiera numer, np. "1. Kluczowe Punkty Wspólne"
         title = match[0].strip()
         content = match[1].strip()
         if title:
-            sections[title] = content
+            # Usuwamy numerację z klucza słownika dla spójności z listą preferred_tab_order
+            clean_title = re.sub(r"^\d+\.\s*", "", title)
+            sections[clean_title] = content
+
+    # Jeśli parser nic nie znalazł (bo np. AI nie użyło numeracji), spróbuj starej metody jako fallback
+    if not sections:
+        pattern_fallback = r"###\s*(.*?)\n(.*?)(?=\n###\s*|$)"
+        matches_fallback = re.findall(pattern_fallback, report_text, re.DOTALL | re.MULTILINE)
+        for match in matches_fallback:
+            title = match[0].strip()
+            content = match[1].strip()
+            if title and not title.startswith('#'): # Dodatkowe zabezpieczenie
+                sections[title] = content
 
     return sections
 
@@ -192,56 +177,40 @@ def parse_report(report_text):
 # Krok 5: Interfejs Użytkownika Streamlit i główna logika
 # ==============================================================================
 
-# Pole formularza do wprowadzenia frazy
 keyword = st.text_input("Wprowadź frazę kluczową, którą chcesz przeanalizować:", placeholder="np. jak dbać o buty skórzane")
 
-# Przycisk do uruchomienia analizy
 if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
     if not keyword:
         st.warning("Proszę wpisać frazę kluczową.")
         st.stop()
 
-    if 'GEMINI_API_KEY' not in st.secrets or 'SEARCH_API_KEY' not in st.secrets or 'SEARCH_ENGINE_ID' not in st.secrets or 'SCRAPINGBEE_API_KEY' not in st.secrets:
+    if not all(k in st.secrets for k in ["GEMINI_API_KEY", "SEARCH_API_KEY", "SEARCH_ENGINE_ID", "SCRAPINGBEE_API_KEY"]):
          st.error("Błąd: Nie wszystkie klucze API są skonfigurowane w Streamlit Secrets.")
          st.stop()
 
-
     with st.spinner("Przeprowadzam pełny audyt... To może potrwać kilka minut."):
-
-        # Etap 1: Pobieranie wyników z Google
         st.info("Etap 1/4: Pobieranie i filtrowanie wyników z Google...")
         top_results = get_top_10_results(SEARCH_API_KEY, SEARCH_ENGINE_ID, keyword)
-
         if not top_results:
             st.error(f"Nie znaleziono żadnych wyników TOP 10 dla frazy: '{keyword}'.")
             st.stop()
 
-        BANNED_DOMAINS = [
-            "youtube.com", "pinterest.", "instagram.com", "facebook.com",
-            "olx.pl", "allegro.pl", "twitter.com", "tiktok.com",
-            "wikipedia.org", "słownik.pl", "encyklopedia.", "forum.",
-            ".gov", ".edu",
-            "otodom.pl", "gratka.pl", "domiporta.pl"
-        ]
+        BANNED_DOMAINS = ["youtube.com", "pinterest.", "instagram.com", "facebook.com", "olx.pl", "allegro.pl", "twitter.com", "tiktok.com", "wikipedia.org", ".gov", ".edu"]
         filtered_results = [r for r in top_results if r and r.get('link') and not any(b in r['link'].lower() for b in BANNED_DOMAINS)]
 
         if not filtered_results:
-            st.error("Po filtracji nie pozostały żadne artykuły do analizy (usunięto strony wideo, social media, sklepy, fora, Wikipedia, ogłoszenia, itp.).")
+            st.error("Po filtracji nie pozostały żadne artykuły do analizy.")
             st.stop()
 
-        if len(top_results) > len(filtered_results):
-             st.info(f"Pominięto {len(top_results) - len(filtered_results)} wyników, analizuję {len(filtered_results)} znalezionych artykułów.")
+        st.info(f"Pominięto {len(top_results) - len(filtered_results)} wyników, analizuję {len(filtered_results)} znalezionych artykułów.")
+        with st.expander("Zobacz analizowane adresy URL"):
+            for i, result in enumerate(filtered_results, 1):
+                display_title = result.get('title', result.get('link', 'Brak tytułu'))
+                st.write(f"{i}. [{display_title}]({result.get('link', '#')})")
 
-        st.subheader("Analizowane adresy URL (po filtracji):")
-        for i, result in enumerate(filtered_results, 1):
-            display_title = result.get('title', result.get('link', f"Brak tytułu dla {result.get('link', 'nieznany URL')}"))
-            st.write(f"{i}. [{display_title}]({result.get('link', '#')})")
-
-
-        # Etap 2: Scraping treści
-        st.info("Etap 2/4: Pobieranie treści ze stron przez Scraping API...")
+        st.info("Etap 2/4: Pobieranie treści ze stron...")
         all_articles_content, successful_sources = [], []
-        progress_bar = st.progress(0)
+        progress_bar = st.progress(0, text="Pobieranie...")
         for i, result in enumerate(filtered_results):
              url = result.get('link')
              if url:
@@ -249,34 +218,24 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
                  if content:
                      all_articles_content.append(content)
                      successful_sources.append({'title': result.get('title', 'Brak tytułu'), 'link': url})
-                 progress_bar.progress((i + 1) / len(filtered_results))
+                 progress_bar.progress((i + 1) / len(filtered_results), text=f"Pobrano {i+1}/{len(filtered_results)}")
         progress_bar.empty()
 
         if not all_articles_content:
-            st.error("Nie udało się pobrać treści z żadnej ze stron przy użyciu ScrapingBee. Sprawdź klucz API ScrapingBee, limity lub dostępność stron. Czasami problemem są też bardzo rozbudowane strony.")
+            st.error("Nie udało się pobrać treści z żadnej ze stron.")
             st.stop()
-
         st.success(f"✅ Pomyślnie pobrano treści z {len(all_articles_content)} stron.")
 
+        average_word_count = sum(len(text.split()) for text in all_articles_content) // len(all_articles_content) if all_articles_content else 0
 
-        # <<< NOWY KOD: Obliczanie i wyświetlanie średniej długości tekstu >>>
-        average_word_count = 0
-        if all_articles_content:
-            total_words = sum(len(text.split()) for text in all_articles_content)
-            average_word_count = total_words // len(all_articles_content) # Używamy dzielenia całkowitego dla czystej liczby
-
-
-        # Etap 3: Analiza AI
         st.info("Etap 3/4: Generowanie kompleksowego raportu przez AI...")
         aggregated_content = "\n\n---\n\n".join(all_articles_content)
         full_report = analyze_content_with_gemini(aggregated_content, keyword)
 
         if not full_report:
-             st.error("Generowanie raportu przez Gemini nie powiodło się. Sprawdź logi lub spróbuj z inną frazą/kluczami API.")
+             st.error("Generowanie raportu przez Gemini nie powiodło się.")
              st.stop()
 
-
-        # Etap 4: Formatowanie wyników
         st.info("Etap 4/4: Formatowanie wyników...")
         report_sections = parse_report(full_report)
 
@@ -285,51 +244,54 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
 
         st.balloons()
         st.success("✅ Audyt SEO gotowy!")
-
         st.markdown(f"--- \n## Audyt SEO i plan treści dla frazy: '{keyword}'")
 
-        # <<< NOWY KOD: Wyświetlanie metryki ze średnią długością >>>
         if average_word_count > 0:
-            st.metric(
-                label="Średnia długość analizowanych artykułów",
-                value=f"~ {average_word_count} słów",
-                help="Jest to przybliżona średnia liczba słów w artykułach konkurencji. Może służyć jako wskazówka co do oczekiwanej objętości nowego tekstu."
-            )
-            st.markdown("---") # Dodanie separatora dla lepszej czytelności
+            st.metric(label="Średnia długość analizowanych artykułów", value=f"~ {average_word_count} słów")
+            st.markdown("---")
 
-        # --- Interfejs z zakładkami (bez zmian) ---
-        preferred_tab_order = [
-            "Kluczowe Punkty Wspólne",
-            "Unikalne i Wyróżniające Się Elementy",
-            "Sugerowane Słowa Kluczowe i Semantyka",
-            "Proponowana Struktura Artykułu (Szkic)",
-            "Sekcja FAQ (Pytania i Odpowiedzi)",
-            "Wnioski i Rekomendacje",
-            "Analizowane Źródła"
-        ]
-
-        actual_tab_titles = [
-            title for title in preferred_tab_order if title in report_sections and report_sections[title].strip()
-        ]
+        preferred_tab_order = ["Kluczowe Punkty Wspólne", "Unikalne i Wyróżniające Się Elementy", "Sugerowane Słowa Kluczowe i Semantyka", "Proponowana Struktura Artykułu (Szkic)", "Sekcja FAQ (Pytania i Odpowiedzi)", "Analizowane Źródła"]
+        
+        # <<< ZMIANA: Lepsze dopasowanie nazw zakładek do tego, co zwraca parser >>>
+        # Sprawdzamy, czy klucze ze słownika `report_sections` pasują do `preferred_tab_order`
+        actual_tab_titles = [title for title in preferred_tab_order if title in report_sections and report_sections[title].strip()]
+        
+        # Jeśli parser zwrócił klucze z numeracją (np. "1. Kluczowe..."), a w preferred_tab_order mamy bez, to by nie zadziałało.
+        # Dlatego parser teraz usuwa numerację z klucza.
 
         if actual_tab_titles:
-             sources_tab_title = "Analizowane Źródła"
-             if sources_tab_title in actual_tab_titles:
-                  actual_tab_titles.remove(sources_tab_title)
-
-             final_tabs_list = actual_tab_titles + ([sources_tab_title] if sources_tab_title in report_sections and report_sections[sources_tab_title].strip() else [])
-             tabs = st.tabs(final_tabs_list)
-
-             tab_title_map = {i: title for i, title in enumerate(final_tabs_list)}
-
-             for i in range(len(tabs)):
-                 with tabs[i]:
-                     current_title = tab_title_map[i]
+             tabs = st.tabs(actual_tab_titles)
+             for i, tab in enumerate(tabs):
+                 with tab:
+                     current_title = actual_tab_titles[i]
                      st.header(current_title)
-                     st.markdown(report_sections[current_title])
+                     st.markdown(report_sections[current_title], unsafe_allow_html=True) # Dodano unsafe_allow_html dla pewności
+        elif report_sections:
+             st.warning("Nie udało się dopasować sekcji raportu do zakładek. Wyświetlam cały raport poniżej.")
+             st.markdown(full_report)
         else:
-             st.warning("Brak danych do wyświetlenia w zakładkach. Sprawdź odpowiedź Gemini. Możliwe, że API nie zwróciło żadnej treści lub wszystkie sekcje są puste.")
+             st.warning("Brak danych do wyświetlenia. Odpowiedź z AI mogła być pusta lub w nieprawidłowym formacie.")
+
 
 else:
     if keyword:
          st.info(f"Wprowadzono frazę: '{keyword}'. Kliknij przycisk powyżej, aby rozpocząć analizę.")
+
+Krok 2: Jak wymusić odświeżenie analizy
+
+Teraz, gdy kod jest poprawiony, musisz upewnić się, że Streamlit nie użyje starego wyniku. Masz dwie opcje:
+
+Opcja A (Najprostsza): Użyj innej frazy kluczowej.
+Wpisz w pole do analizy frazę, której jeszcze nie używałeś, np. "najlepszy ekspres do kawy" zamiast "jak dbać o buty". Ponieważ argumenty funkcji analyze_content_with_gemini będą inne (keyword_phrase się zmieni), Streamlit będzie musiał wykonać ją od nowa.
+
+Opcja B (Uniwersalna): Wyczyść pamięć podręczną (cache).
+
+Uruchom aplikację.
+
+W prawym górnym rogu okna aplikacji kliknij na ikonę "hamburgera" (trzy poziome kreski).
+
+Wybierz z menu opcję "Clear cache".
+
+Po wyczyszczeniu cache'u uruchom analizę dla dowolnej frazy (nawet tej samej co wcześniej). Aplikacja będzie zmuszona wykonać wszystkie obliczenia od nowa, używając już poprawionego kodu.
+
+Po wykonaniu tych dwóch kroków (aktualizacja kodu i odświeżenie cache/zmiana frazy), powinieneś otrzymać znacznie bardziej rozbudowaną i zgodną z oczekiwaniami strukturę artykułu.
