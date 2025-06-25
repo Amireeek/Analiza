@@ -3,10 +3,7 @@
 # ==============================================================================
 # Krok 0: Instalacja bibliotek
 # ==============================================================================
-# Jeśli uruchamiasz to lokalnie, upewnij się, że masz te biblioteki zainstalowane:
 # pip install streamlit requests trafilatura google-generativeai scrapingbee
-# Jeśli uruchamiasz w Streamlit Cloud, dodaj je do pliku requirements.txt
-
 # ==============================================================================
 # Krok 1: Import bibliotek
 # ==============================================================================
@@ -15,8 +12,8 @@ import requests
 import re
 from trafilatura import extract
 import google.generativeai as genai
-from urllib.parse import urlencode as encode_query_params # Może się przydać, ale DataForSEO używa JSON payload
-import json # Do tworzenia payloadu JSON dla DataForSEO
+from urllib.parse import urlencode as encode_query_params
+import json
 
 # ==============================================================================
 # Krok 2: Konfiguracja strony Streamlit
@@ -25,13 +22,12 @@ st.set_page_config(page_title="SEO Content Powerhouse", page_icon="🚀", layout
 st.title("🚀 SEO Content Powerhouse z AI")
 st.markdown("Narzędzie do tworzenia kompletnych strategii contentowych na podstawie analizy TOP 10 wyników Google.")
 
-
 # ==============================================================================
 # Krok 3: Obsługa Kluczy API ze Streamlit Secrets
 # ==============================================================================
 try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-    SCRAPINGBEE_API_KEY = st.secrets["SCRAPINGBEE_API_KEY"] # Nadal potrzebne do scrapowania treści stron
+    SCRAPINGBEE_API_KEY = st.secrets["SCRAPINGBEE_API_KEY"]
     DATAFORSEO_LOGIN = st.secrets["DATAFORSEO_LOGIN"]
     DATAFORSEO_PASSWORD = st.secrets["DATAFORSEO_PASSWORD"]
 
@@ -39,90 +35,88 @@ try:
 
 except KeyError as e:
     missing_key = str(e).strip("'")
-    st.error(f"🛑 Błąd konfiguracji sekretów! Nie znaleziono wymaganego sekretu: {missing_key}. Upewnij się, że skonfigurowałeś GEMINI_API_KEY, SCRAPINGBEE_API_KEY, DATAFORSEO_LOGIN i DATAFORSEO_PASSWORD w ustawieniach Streamlit.")
+    st.error(f"🛑 Błąd konfiguracji sekretów! Nie znaleziono wymaganego sekretu: {missing_key}. Upewnij się, że skonfigurowałeś GEMINI_API_KEY, SCRAPINGBEE_API_KEY, DATAFORSEO_LOGIN i DATAFORSEO_PASSWORD.")
     st.stop()
 except Exception as e:
     st.error(f"🛑 Wystąpił nieoczekiwany błąd podczas ładowania kluczy: {e}")
     st.stop()
-
 
 # ==============================================================================
 # Krok 4: Funkcje Backendowe
 # ==============================================================================
 
 @st.cache_data
-def get_top_10_google_results_with_dataforseo(login, password, query, num_results=10, location_code=2616, language_code='pl'):
-    """Pobiera wyniki wyszukiwania Google używając API DataForSEO (Live SERP endpoint)."""
-    
-    post_data = [
-        {
-            "keyword": query,
-            "location_code": location_code,
-            "language_code": language_code,
-            "depth": num_results  # 'depth' to liczba wyników do zwrócenia
-        }
-    ]
-    
-    headers = {
-        'Content-Type': 'application/json'
-    }
-    
-    # Endpoint dla "Standard Google SERP API - Live - Regular"
-    # Sprawdź aktualny endpoint w dokumentacji DataForSEO, jeśli ten nie działa.
-    endpoint_url = "https://api.dataforseo.com/v3/serp/google/organic/live/regular"
-    
+def get_serp_data_with_dataforseo(login, password, query, num_results=10, location_code=2616, language_code='pl'):
+    """
+    Pobiera wyniki wyszukiwania Google (organiczne i AI Overview) używając API DataForSEO.
+    Zwraca słownik: {'organic_results': [], 'ai_overview_text': "tekst lub None"}
+    """
+    post_data = [{"keyword": query, "location_code": location_code, "language_code": language_code, "depth": num_results}]
+    headers = {'Content-Type': 'application/json'}
+    endpoint_url = "https://api.dataforseo.com/v3/serp/google/organic/live/regular" # Sprawdź, czy to poprawny endpoint dla organicznych i AI Overview
+
+    organic_results_list = []
+    ai_overview_text_content = None
+
     try:
-        st.write(f"Wysyłanie zapytania do DataForSEO z payloadem: {json.dumps(post_data)}") # Debug
-        response = requests.post(
-            endpoint_url,
-            auth=(login, password), # Basic Authentication
-            headers=headers,
-            json=post_data, # Wysyłamy dane jako JSON
-            timeout=60
-        )
-        response.raise_for_status() # Rzuci wyjątek dla błędów HTTP (4xx, 5xx)
+        st.write(f"Wysyłanie zapytania do DataForSEO z payloadem: {json.dumps(post_data)}")
+        response = requests.post(endpoint_url, auth=(login, password), headers=headers, json=post_data, timeout=60)
+        response.raise_for_status()
         data = response.json()
-        st.write(f"Odpowiedź JSON od DataForSEO: {data}") # Debug
+        st.write(f"Odpowiedź JSON od DataForSEO: {data}")
 
         if data.get("status_code") == 20000 and data.get("tasks") and data["tasks"][0].get("result") and data["tasks"][0]["result"][0].get("items"):
             items = data["tasks"][0]["result"][0]["items"]
-            results = []
             for item in items:
-                if item.get("type") == "organic": # Interesują nas tylko wyniki organiczne
+                item_type = item.get("type")
+                if item_type == "organic":
                     title = item.get("title")
-                    link = item.get("url") # W DataForSEO link jest zazwyczaj pod kluczem 'url'
+                    link = item.get("url")
                     if title and link:
-                        results.append({'title': title, 'link': link})
+                        organic_results_list.append({'title': title, 'link': link})
                     else:
                         st.warning(f"Pominięto wynik organiczny z DataForSEO z powodu braku tytułu lub linku: {item}")
-            return results
+                elif item_type == "ai_overview":
+                    # Struktura AI Overview może być różna. Trzeba sprawdzić JSON.
+                    # Najpierw spróbujmy 'text', potem 'description', albo bardziej złożone pola.
+                    # W DataForSEO 'ai_overview' może mieć pole 'text' lub listę 'paragraphs'
+                    if item.get("text"):
+                        ai_overview_text_content = item.get("text")
+                    elif item.get("description"): # Alternatywne pole
+                         ai_overview_text_content = item.get("description")
+                    elif item.get("paragraphs") and isinstance(item.get("paragraphs"), list):
+                        ai_overview_text_content = "\n\n".join([p.get("text", "") for p in item.get("paragraphs") if p.get("text")])
+
+                    if ai_overview_text_content:
+                        st.info(f"Znaleziono AI Overview: {ai_overview_text_content[:200]}...") # Pokaż fragment
+                    # Zwykle jest jeden AI Overview, więc po znalezieniu można by przerwać szukanie go, ale pętla i tak idzie dalej dla organicznych.
         else:
             status_message = data.get("status_message", "Nieznany błąd.")
             tasks_error = ""
             if data.get("tasks") and data["tasks"][0].get("status_message") != "Ok.":
                 tasks_error = f" Błąd zadania: {data['tasks'][0]['status_code']} - {data['tasks'][0]['status_message']}"
-
-            st.warning(f"DataForSEO API zwróciło nieoczekiwany status lub brak wyników: {status_message}{tasks_error}. Pełna odpowiedź powyżej.")
-            return []
+            st.warning(f"DataForSEO API zwróciło nieoczekiwany status lub brak wyników: {status_message}{tasks_error}.")
+        
+        return {'organic_results': organic_results_list, 'ai_overview_text': ai_overview_text_content}
 
     except requests.exceptions.Timeout:
         st.error(f"🛑 Przekroczono czas oczekiwania na odpowiedź od DataForSEO dla zapytania: '{query}'")
-        return None
     except requests.exceptions.RequestException as e:
         st.error(f"🛑 Błąd podczas komunikacji z API DataForSEO: {e}")
         if hasattr(e, 'response') and e.response is not None:
             st.text_area("Treść odpowiedzi błędu DataForSEO (debug):", e.response.text, height=150)
-        return None
-    except Exception as e: # Np. błąd parsowania JSON
+    except Exception as e:
         st.error(f"🛑 Nieoczekiwany błąd podczas przetwarzania odpowiedzi z DataForSEO: {e}")
         if 'response' in locals() and hasattr(response, 'text'):
             st.text_area("Surowa odpowiedź DataForSEO (debug):", response.text, height=150)
-        return None
+    
+    return {'organic_results': [], 'ai_overview_text': None} # Zwróć puste struktury w razie błędu
 
 
 @st.cache_data
 def scrape_and_clean_content(url_to_scrape, scrapingbee_api_key):
-    """Pobiera i czyści treść ze strony używając ScrapingBee (bez zmian)."""
+    """Pobiera i czyści treść ze strony używając ScrapingBee."""
+    # (bez zmian w tej funkcji)
     try:
         response = requests.get(
             url='https://app.scrapingbee.com/api/v1/',
@@ -144,34 +138,56 @@ def scrape_and_clean_content(url_to_scrape, scrapingbee_api_key):
 
 
 @st.cache_data(show_spinner="AI analizuje treść...")
-def analyze_content_with_gemini(all_content, keyword_phrase):
-    """Analizuje zagregowaną treść i generuje raport z Gemini (bez zmian)."""
-    if not all_content:
-        return "Brak treści do analizy przez AI."
+def analyze_content_with_gemini(all_content, keyword_phrase, ai_overview_text=None): # Dodano parametr ai_overview_text
+    """Analizuje zagregowaną treść, AI Overview i generuje raport z Gemini."""
+    if not all_content and not ai_overview_text:
+        return "Brak treści (artykułów i AI Overview) do analizy przez AI."
+
+    ai_overview_section = ""
+    if ai_overview_text:
+        ai_overview_section = f"""
+### 6. Analiza AI Overview i Wskazówki SEO
+**Pobrany tekst AI Overview dla frazy "{keyword_phrase}":**
+---
+{ai_overview_text}
+---
+**Wskazówki, jak zwiększyć szansę na pojawienie się w AI Overviews (SGE):**
+(Na podstawie powyższego AI Overview (jeśli dostępne) oraz ogólnych zasad SEO, podaj 5-7 konkretnych, praktycznych wskazówek dla twórców treści. Skup się na jakości, E-E-A-T, strukturyzacji danych, bezpośrednich odpowiedziach na pytania, użyciu list, tabel, autorytatywnych źródeł itp.)
+"""
+    else:
+        ai_overview_section = f"""
+### 6. Wskazówki SEO dla AI Overviews (SGE)
+**Dla frazy "{keyword_phrase}" nie znaleziono AI Overview w analizowanych wynikach.**
+
+**Ogólne wskazówki, jak zwiększyć szansę na pojawienie się w AI Overviews (SGE):**
+(Podaj 5-7 konkretnych, praktycznych wskazówek dla twórców treści. Skup się na jakości, E-E-A-T, strukturyzacji danych, bezpośrednich odpowiedziach na pytania, użyciu list, tabel, autorytatywnych źródeł itp. Wskazówki powinny być uniwersalne, skoro nie ma konkretnego AI Overview do analizy.)
+"""
+
     prompt = f"""
-Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Twoim zadaniem jest przeanalizowanie dostarczonej treści z czołowych artykułów dla frazy "{keyword_phrase}" i na tej podstawie wygenerowanie kompleksowego raportu w formacie Markdown.
+Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Twoim zadaniem jest przeanalizowanie dostarczonej treści z czołowych artykułów dla frazy "{keyword_phrase}" oraz potencjalnie treści AI Overview. Na tej podstawie wygeneruj kompleksowy raport w formacie Markdown.
 
 Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagłówków `### numer. Nazwa sekcji` i **żadnych innych nagłówków H3 w tytułach sekcji raportu**:
 
 ### 1. Kluczowe Punkty Wspólne
-(Wypunktuj tematy, podtematy, kluczowe informacje, perspektywy i style narracji, które powtarzają się w większości analizowanych tekstów. Skup się na tym, co jest standardem w TOP 10 i skonstruuj wytyczne dla copywritera)
+(Wypunktuj tematy, podtematy, kluczowe informacje, perspektywy i style narracji, które powtarzają się w większości analizowanych tekstów z TOP10. Skup się na tym, co jest standardem i skonstruuj wytyczne dla copywritera)
 
 ### 2. Unikalne i Wyróżniające Się Elementy
-(Wypunktuj nietypowe, oryginalne, innowacyjne lub szczególnie wartościowe informacje, dane, przykłady, case studies, infografiki (opisz co przedstawiają) lub perspektywy, które pojawiły się tylko w niektórych źródłach i mogą stanowić przewagę konkurencyjną dla nowego artykułu.)
+(Wypunktuj nietypowe, oryginalne, innowacyjne lub szczególnie wartościowe informacje, dane, przykłady, case studies, infografiki (opisz co przedstawiają) lub perspektywy, które pojawiły się tylko w niektórych źródłach z TOP10 i mogą stanowić przewagę konkurencyjną dla nowego artykułu.)
 
 ### 3. Sugerowane Słowa Kluczowe i Semantyka
-(Na podstawie analizy treści konkurencji, stwórz listę 10-12 najważniejszych słów kluczowych, fraz długoogonowych i pojęć semantycznie powiązanych. Pogrupuj je tematycznie, jeśli to ułatwia zrozumienie. Wskaż intencję wyszukiwania dla frazy głównej.)
+(Na podstawie analizy treści konkurencji z TOP10, stwórz listę 10-12 najważniejszych słów kluczowych, fraz długoogonowych i pojęć semantycznie powiązanych. Pogrupuj je tematycznie, jeśli to ułatwia zrozumienie. Wskaż intencję wyszukiwania dla frazy głównej.)
 
 ### 4. Proponowana Struktura Artykułu (Szkic)
-(Zaproponuj idealną, rozbudowaną strukturę nowego artykułu w formacie Markdown. Użyj nagłówków drugiego poziomu (`##`) dla głównych sekcji i nagłówków trzeciego poziomu (`###`) dla podpunktów. Zaproponuj kilka nagłówków do artykułu, zawierających **około 3 nagłówki H2 i 1 nagłówek H3 jako przykład hierarchii**. Uwzględnij kluczowe punkty, unikalne elementy i semantykę z analizy.)
+(Zaproponuj idealną, rozbudowaną strukturę nowego artykułu w formacie Markdown, bazując na analizie TOP10. Użyj nagłówków drugiego poziomu (`##`) dla głównych sekcji i nagłówków trzeciego poziomu (`###`) dla podpunktów. Zaproponuj kilka nagłówków do artykułu, zawierających **około 3 nagłówki H2 i 1 nagłówek H3 jako przykład hierarchii**. Uwzględnij kluczowe punkty, unikalne elementy i semantykę z analizy.)
 
 ### 5. Sekcja FAQ (Pytania i Odpowiedzi)
-(Stwórz listę 4-5 najczęstszych pytań, na które odpowiadają konkurenci, w stylu 'People Also Ask'. Podaj 2-3 zdaniowe bezpośrednie odpowiedzi na te pytania, bazując na analizowanej treści. Odpowiedzi napisz pod pytaniami)
+(Stwórz listę 4-5 najczęstszych pytań, na które odpowiadają konkurenci z TOP10, w stylu 'People Also Ask'. Podaj 2-3 zdaniowe bezpośrednie odpowiedzi na te pytania, bazując na analizowanej treści. Odpowiedzi napisz pod pytaniami)
 
+{ai_overview_section}
 
 Pamiętaj, aby Twoja odpowiedź była TYLKO treścią raportu w formacie Markdown, bez żadnych dodatkowych wstępów czy podsumowań poza strukturą raportu. Cała odpowiedź musi być w języku polskim.
-Treść do analizy:
-{all_content}
+Treść z artykułów TOP10 do analizy (jeśli dostępna):
+{all_content if all_content else "Brak treści z artykułów TOP10 do analizy."}
 """
     try:
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
@@ -190,7 +206,8 @@ Treść do analizy:
         return None
 
 def parse_report(report_text):
-    """Dzieli pełny raport na sekcje do wyświetlenia w zakładkach (bez zmian)."""
+    """Dzieli pełny raport na sekcje do wyświetlenia w zakładkach."""
+    # (bez zmian w tej funkcji)
     if not report_text: return {}
     sections = {}
     pattern = r"###\s*(?:\d+\.\s*)?(.*?)\n(.*?)(?=\n###\s*|$|\Z)"
@@ -216,28 +233,35 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
        'GEMINI_API_KEY' not in st.secrets or \
        'DATAFORSEO_LOGIN' not in st.secrets or \
        'DATAFORSEO_PASSWORD' not in st.secrets:
-         st.error("Błąd: Nie wszystkie wymagane klucze API (ScrapingBee, Gemini, DataForSEO) są skonfigurowane w Streamlit Secrets.")
+         st.error("Błąd: Nie wszystkie wymagane klucze API są skonfigurowane w Streamlit Secrets.")
          st.stop()
 
     with st.spinner("Przeprowadzam pełny audyt... To może potrwać kilka minut."):
         st.info("Etap 1/4: Pobieranie i filtrowanie wyników z Google (przez DataForSEO)...")
         
-        # Używamy nowej funkcji z danymi logowania DataForSEO
-        top_results = get_top_10_google_results_with_dataforseo(
+        serp_data = get_serp_data_with_dataforseo( # Zmieniono nazwę funkcji
             DATAFORSEO_LOGIN, 
             DATAFORSEO_PASSWORD, 
             keyword,
-            num_results=10, # Można to też uczynić konfigurowalnym
-            location_code=2616, # Polska
+            num_results=10,
+            location_code=2616,
             language_code='pl'
         )
 
-        if top_results is None: # Obsługa błędu krytycznego z API
-            st.error("Wystąpił krytyczny błąd podczas pobierania wyników z DataForSEO. Audyt przerwany.")
+        top_results = []
+        ai_overview_text_from_serp = None
+
+        if serp_data:
+            top_results = serp_data.get('organic_results', [])
+            ai_overview_text_from_serp = serp_data.get('ai_overview_text')
+        
+        if not top_results and ai_overview_text_from_serp is None: # Jeśli nie ma ani wyników organicznych, ani AI overview
+            st.error("Nie udało się pobrać żadnych danych SERP (ani wyników organicznych, ani AI Overview) z DataForSEO. Audyt przerwany.")
             st.stop()
-        if not top_results:
-            st.error(f"Nie znaleziono żadnych wyników organicznych TOP 10 dla frazy: '{keyword}' przy użyciu DataForSEO. Sprawdź logi powyżej dla szczegółów błędu od DataForSEO.")
-            st.stop()
+        if not top_results: # Jeśli nie ma wyników organicznych, ale może być AI Overview
+            st.warning(f"Nie znaleziono żadnych wyników organicznych TOP 10 dla frazy: '{keyword}' przy użyciu DataForSEO. Analiza będzie kontynuowana, jeśli znaleziono AI Overview.")
+            # Nie przerywamy, bo możemy mieć AI Overview do analizy
+
 
         BANNED_DOMAINS = [
             "youtube.com", "pinterest.", "instagram.com", "facebook.com",
@@ -247,48 +271,65 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         ]
         filtered_results = [r for r in top_results if r and r.get('link') and not any(b in r['link'].lower() for b in BANNED_DOMAINS)]
 
-        if not filtered_results:
-            st.error("Po filtracji nie pozostały żadne artykuły do analizy (usunięto strony wideo, social media, sklepy, fora, Wikipedia, ogłoszenia, itp.).")
+        if not filtered_results and not ai_overview_text_from_serp:
+             st.error("Po filtracji nie pozostały żadne artykuły do analizy i nie znaleziono AI Overview.")
+             st.stop()
+        elif not filtered_results and ai_overview_text_from_serp:
+             st.info("Nie znaleziono artykułów do analizy po filtracji, ale znaleziono AI Overview. Przechodzę do analizy AI.")
+        elif filtered_results: # Mamy przefiltrowane wyniki organiczne
+             if len(top_results) > len(filtered_results):
+                  st.info(f"Pominięto {len(top_results) - len(filtered_results)} wyników organicznych (np. social media, sklepy), analizuję {len(filtered_results)} znalezionych artykułów.")
+             st.subheader("Analizowane adresy URL (po filtracji):")
+             for i, result in enumerate(filtered_results, 1):
+                 display_title = result.get('title', result.get('link', f"Brak tytułu dla {result.get('link', 'nieznany URL')}"))
+                 st.write(f"{i}. [{display_title}]({result.get('link', '#')})")
+
+
+        all_articles_content_str = ""
+        if filtered_results: # Tylko jeśli są artykuły do scrapowania
+            st.info("Etap 2/4: Pobieranie treści ze stron przez Scraping API (ScrapingBee)...")
+            all_articles_content_list, successful_sources = [], []
+            progress_bar = st.progress(0)
+            for i, result in enumerate(filtered_results):
+                url = result.get('link')
+                if url:
+                    content = scrape_and_clean_content(url, SCRAPINGBEE_API_KEY)
+                    if content:
+                        all_articles_content_list.append(content)
+                        successful_sources.append({'title': result.get('title', 'Brak tytułu'), 'link': url})
+                    progress_bar.progress((i + 1) / len(filtered_results))
+            progress_bar.empty()
+
+            if not all_articles_content_list:
+                st.warning("Nie udało się pobrać treści z żadnej ze stron przy użyciu ScrapingBee. Analiza AI będzie bazować tylko na AI Overview (jeśli dostępne).")
+            else:
+                st.success(f"✅ Pomyślnie pobrano treści z {len(all_articles_content_list)} stron.")
+                all_articles_content_str = "\n\n---\n\n".join(all_articles_content_list)
+        
+        # Nawet jeśli nie ma treści artykułów, ale jest AI Overview, kontynuuj
+        if not all_articles_content_str and not ai_overview_text_from_serp:
+            st.error("Brak treści artykułów oraz brak AI Overview do analizy. Audyt przerwany.")
             st.stop()
-
-        if len(top_results) > len(filtered_results):
-             st.info(f"Pominięto {len(top_results) - len(filtered_results)} wyników (np. social media, sklepy), analizuję {len(filtered_results)} znalezionych artykułów.")
-
-        st.subheader("Analizowane adresy URL (po filtracji):")
-        for i, result in enumerate(filtered_results, 1):
-            display_title = result.get('title', result.get('link', f"Brak tytułu dla {result.get('link', 'nieznany URL')}"))
-            st.write(f"{i}. [{display_title}]({result.get('link', '#')})")
-
-        st.info("Etap 2/4: Pobieranie treści ze stron przez Scraping API (ScrapingBee)...")
-        all_articles_content, successful_sources = [], []
-        progress_bar = st.progress(0)
-        for i, result in enumerate(filtered_results):
-             url = result.get('link')
-             if url:
-                 content = scrape_and_clean_content(url, SCRAPINGBEE_API_KEY) # Nadal używamy ScrapingBee do treści
-                 if content:
-                     all_articles_content.append(content)
-                     successful_sources.append({'title': result.get('title', 'Brak tytułu'), 'link': url})
-                 progress_bar.progress((i + 1) / len(filtered_results))
-        progress_bar.empty()
-
-        if not all_articles_content:
-            st.error("Nie udało się pobrać treści z żadnej ze stron przy użyciu ScrapingBee. Sprawdź limity, dostępność stron lub czy strony nie blokują scraperów.")
-            st.stop()
-        st.success(f"✅ Pomyślnie pobrano treści z {len(all_articles_content)} stron.")
 
         st.info("Etap 3/4: Generowanie kompleksowego raportu przez AI (Gemini)...")
-        aggregated_content = "\n\n---\n\n".join(all_articles_content)
-        full_report = analyze_content_with_gemini(aggregated_content, keyword)
+        full_report = analyze_content_with_gemini(all_articles_content_str, keyword, ai_overview_text_from_serp) # Przekazujemy AI Overview
 
         if not full_report:
-             st.error("Generowanie raportu przez Gemini nie powiodło się. Sprawdź logi lub spróbuj z inną frazą/kluczami API.")
+             st.error("Generowanie raportu przez Gemini nie powiodło się.")
              st.stop()
 
         st.info("Etap 4/4: Formatowanie wyników...")
         report_sections = parse_report(full_report)
-        sources_text = "\n".join([f"- [{source['title']}]({source['link']})" for source in successful_sources])
-        report_sections["Analizowane Źródła"] = "Poniżej lista adresów URL, których treść została pomyślnie pobrana i przeanalizowana przez AI:\n" + sources_text
+        
+        # Sekcja źródeł - teraz tylko jeśli były artykuły
+        if 'successful_sources' in locals() and successful_sources: # Sprawdź, czy lista źródeł istnieje i nie jest pusta
+            sources_text = "\n".join([f"- [{source['title']}]({source['link']})" for source in successful_sources])
+            report_sections["Analizowane Źródła Artykułów"] = "Poniżej lista adresów URL artykułów, których treść została pomyślnie pobrana i przeanalizowana przez AI:\n" + sources_text
+        elif not filtered_results and ai_overview_text_from_serp: # Jeśli nie było artykułów, ale był AI Overview
+            report_sections["Analizowane Źródła Artykułów"] = "Nie analizowano treści żadnych zewnętrznych artykułów (brak wyników po filtracji lub błąd pobierania). Analiza bazowała głównie na AI Overview."
+        else: # Jeśli nie było ani artykułów, ani AI overview (choć to powinno być wyłapane wcześniej)
+             report_sections["Analizowane Źródła Artykułów"] = "Nie analizowano treści żadnych zewnętrznych artykułów."
+
 
         st.balloons()
         st.success("✅ Audyt SEO gotowy!")
@@ -297,26 +338,38 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         preferred_tab_order = [
             "Kluczowe Punkty Wspólne", "Unikalne i Wyróżniające Się Elementy",
             "Sugerowane Słowa Kluczowe i Semantyka", "Proponowana Struktura Artykułu (Szkic)",
-            "Sekcja FAQ (Pytania i Odpowiedzi)", "Wnioski i Rekomendacje", "Analizowane Źródła"
+            "Sekcja FAQ (Pytania i Odpowiedzi)",
+            "Analiza AI Overview i Wskazówki SEO", # Nowa sekcja
+            "Wskazówki SEO dla AI Overviews (SGE)", # Alternatywna nazwa, jeśli nie było AI Overview
+            "Analizowane Źródła Artykułów" # Zmieniono nazwę
         ]
-        actual_tab_titles = [title for title in preferred_tab_order if title in report_sections and report_sections[title].strip()]
-        if actual_tab_titles:
-             sources_tab_title = "Analizowane Źródła"
-             if sources_tab_title in actual_tab_titles: actual_tab_titles.remove(sources_tab_title)
-             
-             tabs_to_create = actual_tab_titles
-             if sources_tab_title in report_sections and report_sections[sources_tab_title].strip():
-                 tabs_to_create = tabs_to_create + [sources_tab_title]
+        
+        actual_tab_titles = []
+        for title in preferred_tab_order:
+            # Sprawdzamy obie możliwe nazwy dla sekcji AI Overview
+            if title == "Analiza AI Overview i Wskazówki SEO" and title in report_sections and report_sections[title].strip():
+                actual_tab_titles.append(title)
+            elif title == "Wskazówki SEO dla AI Overviews (SGE)" and title in report_sections and report_sections[title].strip():
+                actual_tab_titles.append(title)
+            elif title != "Analiza AI Overview i Wskazówki SEO" and title != "Wskazówki SEO dla AI Overviews (SGE)" and title in report_sections and report_sections[title].strip():
+                 actual_tab_titles.append(title)
+        
+        # Upewnij się, że "Analizowane Źródła Artykułów" jest na końcu, jeśli istnieje
+        sources_tab_title_final = "Analizowane Źródła Artykułów"
+        if sources_tab_title_final in actual_tab_titles:
+            actual_tab_titles.remove(sources_tab_title_final)
+            actual_tab_titles.append(sources_tab_title_final)
 
-             if tabs_to_create:
-                tabs = st.tabs(tabs_to_create)
-                tab_title_map = {i: title for i, title in enumerate(tabs_to_create)}
-                for i in range(len(tabs)):
-                    with tabs[i]:
-                        current_title = tab_title_map[i]
-                        st.header(current_title)
-                        st.markdown(report_sections[current_title])
-             else: st.warning("Brak danych do wyświetlenia w zakładkach po przetworzeniu. Sprawdź odpowiedź Gemini.")
-        else: st.warning("Brak danych do wyświetlenia w zakładkach (prawdopodobnie odpowiedź Gemini była pusta lub nie udało się jej sparsować).")
+
+        if actual_tab_titles:
+            tabs = st.tabs(actual_tab_titles)
+            tab_title_map = {i: title for i, title in enumerate(actual_tab_titles)}
+            for i in range(len(tabs)):
+                with tabs[i]:
+                    current_title = tab_title_map[i]
+                    st.header(current_title)
+                    st.markdown(report_sections[current_title])
+        else:
+            st.warning("Brak danych do wyświetlenia w zakładkach.")
 else:
     if keyword: st.info(f"Wprowadzono frazę: '{keyword}'. Kliknij przycisk powyżej, aby rozpocząć analizę.")
