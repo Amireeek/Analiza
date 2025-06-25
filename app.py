@@ -190,7 +190,7 @@ def parse_report(report_text):
 
 
 # ==============================================================================
-# Krok 5: Interfejs Użytkownika Streamlit i główna logika
+# Krok 5: Interfejs Użytkownika i główna logika
 # ==============================================================================
 
 # Pole formularza do wprowadzenia frazy
@@ -208,15 +208,26 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
          st.error("Błąd: Nie wszystkie klucze API są skonfigurowane w Streamlit Secrets.")
          st.stop()
 
+    # ========================================================================
+    # >>> POCZĄTEK WPROWADZONEJ ZMIANY <<<
+    # Wymuszenie dokładnego dopasowania poprzez opakowanie frazy w cudzysłów.
+    # UWAGA: To znacznie zawęża wyszukiwanie i często może prowadzić do braku wyników.
+    exact_query = f'"{keyword}"'
+    st.info(f"Włączono tryb dokładnego wyszukiwania. Wyszukiwana fraza: {exact_query}")
+    # ========================================================================
+
 
     with st.spinner("Przeprowadzam pełny audyt... To może potrwać kilka minut."):
 
         # Etap 1: Pobieranie wyników z Google
         st.info("Etap 1/4: Pobieranie i filtrowanie wyników z Google...")
-        top_results = get_top_10_results(SEARCH_API_KEY, SEARCH_ENGINE_ID, keyword)
+        # Używamy zmodyfikowanej zmiennej `exact_query` do wyszukiwania
+        top_results = get_top_10_results(SEARCH_API_KEY, SEARCH_ENGINE_ID, exact_query)
+        # >>> KONIEC WPROWADZONEJ ZMIANY <<<
+        # ========================================================================
 
         if not top_results:
-            st.error(f"Nie znaleziono żadnych wyników TOP 10 dla frazy: '{keyword}'.")
+            st.error(f"Nie znaleziono żadnych wyników TOP 10 dla DOKŁADNEJ frazy: '{keyword}'. Spróbuj użyć bardziej ogólnej frazy lub wyłącz tryb dokładnego dopasowania w kodzie.")
             st.stop()
 
         # Filtrowanie wyników (jak w Twoim kodzie)
@@ -271,7 +282,7 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         # Etap 3: Analiza AI
         st.info("Etap 3/4: Generowanie kompleksowego raportu przez AI...")
         aggregated_content = "\n\n---\n\n".join(all_articles_content) # Połącz pobrane treści
-        # Przekazujemy zagregowaną treść i frazę kluczową do Gemini
+        # Przekazujemy zagregowaną treść i ORYGINALNĄ frazę kluczową (keyword) do Gemini
         full_report = analyze_content_with_gemini(aggregated_content, keyword)
 
         if not full_report:
@@ -346,4 +357,4 @@ else:
     # Komunikat początkowy przed kliknięciem przycisku
     if keyword:
          st.info(f"Wprowadzono frazę: '{keyword}'. Kliknij przycisk powyżej, aby rozpocząć analizę.")
-    # else: komunikat z text_input placeholder wystarczy na początku
+    # else: komunikat z text_input placeholder wystarczy
