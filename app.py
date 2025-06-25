@@ -113,7 +113,7 @@ def analyze_content_with_gemini(all_content, keyword_phrase):
     if not all_content:
         return "Brak treści do analizy przez AI."
 
-    # === ZMODYFIKOWANY PROMPT ===
+    # === ZMIANA: ZMODYFIKOWANY PROMPT DLA LEPSZEJ STRUKTURY ARTYKUŁU ===
     prompt = f"""
 Jesteś światowej klasy analitykiem SEO i strategiem content marketingu. Twoim zadaniem jest przeanalizowanie dostarczonej treści z czołowych artykułów dla frazy "{keyword_phrase}" i na tej podstawie wygenerowanie kompleksowego raportu w formacie Markdown.
 
@@ -129,7 +129,7 @@ Raport musi być podzielony na DOKŁADNIE następujące sekcje, używając nagł
 (Na podstawie analizy treści konkurencji, stwórz listę 10-12 najważniejszych słów kluczowych, fraz długoogonowych i pojęć semantycznie powiązanych. Pogrupuj je tematycznie, jeśli to ułatwia zrozumienie. Wskaż intencję wyszukiwania dla frazy głównej.)
 
 ### 4. Proponowana Struktura Artykułu (Szkic)
-(Zaproponuj idealną, rozbudowaną strukturę nowego artykułu w formacie Markdown. Użyj nagłówków drugiego poziomu (`##`) dla głównych sekcji i nagłówków trzeciego poziomu (`###`) dla podpunktów. Zaproponuj kilka nagłówków do artykułu, zawierających **około 3 nagłówki H2 i 1 nagłówek H3 jako przykład hierarchii**. Uwzględnij kluczowe punkty, unikalne elementy i semantykę z analizy.)
+(Zaproponuj idealną, rozbudowaną strukturę nowego artykułu. Zacznij od propozycji chwytliwego tytułu (jako nagłówek H1, np. `# Tytuł`). Następnie stwórz kompletną listę nagłówków dla artykułu, zawierającą **co najmniej 4-5 głównych sekcji (nagłówki H2, np. `## Nagłówek H2`)**. Dla każdej głównej sekcji H2, tam gdzie to merytorycznie uzasadnione, zaproponuj 2-3 podpunkty (nagłówki H3, np. `### Nagłówek H3`). Cała struktura powinna być logiczna, kompleksowo pokrywać temat i wykorzystywać wnioski z poprzednich sekcji analizy.)
 
 ### 5. Sekcja FAQ (Pytania i Odpowiedzi)
 (Stwórz listę 4-5 najczęstszych pytań, na które odpowiadają konkurenci, w stylu 'People Also Ask'. Podaj 2-3 zdaniowe bezpośrednie odpowiedzi na te pytania, bazując na analizowanej treści. Odpowiedzi napisz pod pytaniami)
@@ -170,7 +170,6 @@ Treść do analizy:
 
 
 # --- Funkcja do parsowania raportu (bez zmian) ---
-# Regex nadal działa, bo format nagłówków ### numer. Nazwa sekcji jest zachowany
 def parse_report(report_text):
     """Dzieli pełny raport na sekcje do wyświetlenia w zakładkach."""
     if not report_text: return {}
@@ -202,8 +201,6 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         st.warning("Proszę wpisać frazę kluczową.")
         st.stop()
 
-    # Sprawdzenie, czy klucze są dostępne przed rozpoczęciem
-    # Ta logika została już częściowo obsłużona przez blok try/except na górze
     if 'GEMINI_API_KEY' not in st.secrets or 'SEARCH_API_KEY' not in st.secrets or 'SEARCH_ENGINE_ID' not in st.secrets or 'SCRAPINGBEE_API_KEY' not in st.secrets:
          st.error("Błąd: Nie wszystkie klucze API są skonfigurowane w Streamlit Secrets.")
          st.stop()
@@ -219,29 +216,24 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
             st.error(f"Nie znaleziono żadnych wyników TOP 10 dla frazy: '{keyword}'.")
             st.stop()
 
-        # Filtrowanie wyników (jak w Twoim kodzie)
-        # Rozszerzona lista domen do banowania
         BANNED_DOMAINS = [
             "youtube.com", "pinterest.", "instagram.com", "facebook.com",
             "olx.pl", "allegro.pl", "twitter.com", "tiktok.com",
-            "wikipedia.org", "słownik.pl", "encyklopedia.", "forum.", # Dodano przykładowe filtry ogólne
-            ".gov", ".edu", # Często pomijane w analizach komercyjnych
-            "otodom.pl", "gratka.pl", "domiporta.pl" # Przykłady dla fraz nieruchomościowych
+            "wikipedia.org", "słownik.pl", "encyklopedia.", "forum.",
+            ".gov", ".edu",
+            "otodom.pl", "gratka.pl", "domiporta.pl"
         ]
-        # Filtrujemy wyniki, upewniając się, że link istnieje i nie jest None/pusty
-        filtered_results = [r for r in top_results if r and r.get('link') and not any(b in r['link'].lower() for b in BANNED_DOMAINS)] # .lower() dla bezpieczeństwa
+        filtered_results = [r for r in top_results if r and r.get('link') and not any(b in r['link'].lower() for b in BANNED_DOMAINS)]
 
         if not filtered_results:
             st.error("Po filtracji nie pozostały żadne artykuły do analizy (usunięto strony wideo, social media, sklepy, fora, Wikipedia, ogłoszenia, itp.).")
             st.stop()
 
-        # Informacja o filtracji
         if len(top_results) > len(filtered_results):
              st.info(f"Pominięto {len(top_results) - len(filtered_results)} wyników, analizuję {len(filtered_results)} znalezionych artykułów.")
 
         st.subheader("Analizowane adresy URL (po filtracji):")
         for i, result in enumerate(filtered_results, 1):
-             # Dodano zabezpieczenie get() na wypadek braku tytułu, wyświetlamy link jako fallback
             display_title = result.get('title', result.get('link', f"Brak tytułu dla {result.get('link', 'nieznany URL')}"))
             st.write(f"{i}. [{display_title}]({result.get('link', '#')})")
 
@@ -249,17 +241,16 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         # Etap 2: Scraping treści
         st.info("Etap 2/4: Pobieranie treści ze stron przez Scraping API...")
         all_articles_content, successful_sources = [], []
-        # Używamy klucza ScrapingBee w wywołaniu funkcji
         progress_bar = st.progress(0)
         for i, result in enumerate(filtered_results):
              url = result.get('link')
-             if url: # Upewnij się, że URL istnieje po filtracji
+             if url:
                  content = scrape_and_clean_content(url, SCRAPINGBEE_API_KEY)
                  if content:
                      all_articles_content.append(content)
                      successful_sources.append({'title': result.get('title', 'Brak tytułu'), 'link': url})
                  progress_bar.progress((i + 1) / len(filtered_results))
-        progress_bar.empty() # Ukryj pasek postępu po zakończeniu
+        progress_bar.empty()
 
         if not all_articles_content:
             st.error("Nie udało się pobrać treści z żadnej ze stron przy użyciu ScrapingBee. Sprawdź klucz API ScrapingBee, limity lub dostępność stron. Czasami problemem są też bardzo rozbudowane strony.")
@@ -268,10 +259,16 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         st.success(f"✅ Pomyślnie pobrano treści z {len(all_articles_content)} stron.")
 
 
+        # <<< NOWY KOD: Obliczanie i wyświetlanie średniej długości tekstu >>>
+        average_word_count = 0
+        if all_articles_content:
+            total_words = sum(len(text.split()) for text in all_articles_content)
+            average_word_count = total_words // len(all_articles_content) # Używamy dzielenia całkowitego dla czystej liczby
+
+
         # Etap 3: Analiza AI
         st.info("Etap 3/4: Generowanie kompleksowego raportu przez AI...")
-        aggregated_content = "\n\n---\n\n".join(all_articles_content) # Połącz pobrane treści
-        # Przekazujemy zagregowaną treść i frazę kluczową do Gemini
+        aggregated_content = "\n\n---\n\n".join(all_articles_content)
         full_report = analyze_content_with_gemini(aggregated_content, keyword)
 
         if not full_report:
@@ -281,69 +278,58 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
 
         # Etap 4: Formatowanie wyników
         st.info("Etap 4/4: Formatowanie wyników...")
-        # Parsowanie odpowiedzi Gemini na sekcje
         report_sections = parse_report(full_report)
 
-        # === RĘCZNE DODANIE SEKcji Z ANALIZOWANYMI ŹRÓDŁAMI ===
-        # Zawsze dodajemy tę sekcję do słownika report_sections
         sources_text = "\n".join([f"- [{source['title']}]({source['link']})" for source in successful_sources])
         report_sections["Analizowane Źródła"] = "Poniżej lista adresów URL, których treść została pomyślnie pobrana i przeanalizowana przez AI:\n" + sources_text
-
 
         st.balloons()
         st.success("✅ Audyt SEO gotowy!")
 
         st.markdown(f"--- \n## Audyt SEO i plan treści dla frazy: '{keyword}'")
 
-        # --- Interfejs z zakładkami: DYNAMICZNE TWORZENIE ZAKŁADEK ---
-        # Definiujemy preferowaną kolejność wszystkich MOŻLIWYCH zakładek
-        # Ta lista decyduje o kolejności wyświetlania, jeśli sekcja istnieje.
+        # <<< NOWY KOD: Wyświetlanie metryki ze średnią długością >>>
+        if average_word_count > 0:
+            st.metric(
+                label="Średnia długość analizowanych artykułów",
+                value=f"~ {average_word_count} słów",
+                help="Jest to przybliżona średnia liczba słów w artykułach konkurencji. Może służyć jako wskazówka co do oczekiwanej objętości nowego tekstu."
+            )
+            st.markdown("---") # Dodanie separatora dla lepszej czytelności
+
+        # --- Interfejs z zakładkami (bez zmian) ---
         preferred_tab_order = [
             "Kluczowe Punkty Wspólne",
             "Unikalne i Wyróżniające Się Elementy",
             "Sugerowane Słowa Kluczowe i Semantyka",
             "Proponowana Struktura Artykułu (Szkic)",
             "Sekcja FAQ (Pytania i Odpowiedzi)",
-            "Wnioski i Rekomendacje", # Zachowujemy na liście preferowanej kolejności, ale zakładka pojawi się tylko jeśli Gemini ją wygeneruje (co przy obecnym prompcie się nie stanie) LUB jeśli dodalibyśmy ją ręcznie.
-            "Analizowane Źródła" # Sekcja dodawana ręcznie
+            "Wnioski i Rekomendacje",
+            "Analizowane Źródła"
         ]
 
-        # Tworzymy listę tytułów zakładek, które faktycznie istnieją w naszym słowniku report_sections,
-        # zachowując preferowaną kolejność.
         actual_tab_titles = [
-            title for title in preferred_tab_order if title in report_sections and report_sections[title].strip() # Dodatkowo sprawdzamy, czy treść nie jest pusta po strip()
+            title for title in preferred_tab_order if title in report_sections and report_sections[title].strip()
         ]
 
-        # Tworzenie zakładek dynamicznie na podstawie ISTNIEJĄCYCH i NIEPUSTYCH sekcji
         if actual_tab_titles:
-             # Usuwamy sekcję "Analizowane Źródła" z listy, żeby dodać ją na końcu niezależnie od kolejności z preferred_tab_order
-             # Robimy to, żeby mieć pewność, że jest ZAWSZE na końcu.
              sources_tab_title = "Analizowane Źródła"
              if sources_tab_title in actual_tab_titles:
                   actual_tab_titles.remove(sources_tab_title)
 
+             final_tabs_list = actual_tab_titles + ([sources_tab_title] if sources_tab_title in report_sections and report_sections[sources_tab_title].strip() else [])
+             tabs = st.tabs(final_tabs_list)
 
-             tabs = st.tabs(actual_tab_titles + [sources_tab_title] if sources_tab_title in report_sections and report_sections[sources_tab_title].strip() else actual_tab_titles) # Dodajemy zakładkę źródeł na końcu, jeśli ma treść
-
-
-             # Przypisujemy tytuły do indeksów zakładek w celu poprawnego wyświetlania
-             # Tworzymy mapowanie indeks -> tytuł
-             tab_title_map = {i: title for i, title in enumerate(actual_tab_titles + [sources_tab_title] if sources_tab_title in report_sections and report_sections[sources_tab_title].strip() else actual_tab_titles)}
-
+             tab_title_map = {i: title for i, title in enumerate(final_tabs_list)}
 
              for i in range(len(tabs)):
                  with tabs[i]:
                      current_title = tab_title_map[i]
-                     st.header(current_title) # Dodaj nagłówek w każdej zakładce dla jasności
-                     # Pobierz treść z report_sections (wiemy, że klucz istnieje i nie jest pusty)
+                     st.header(current_title)
                      st.markdown(report_sections[current_title])
         else:
              st.warning("Brak danych do wyświetlenia w zakładkach. Sprawdź odpowiedź Gemini. Możliwe, że API nie zwróciło żadnej treści lub wszystkie sekcje są puste.")
 
-
-    # Koniec bloku if st.button("🚀 Wygeneruj..."):
 else:
-    # Komunikat początkowy przed kliknięciem przycisku
     if keyword:
          st.info(f"Wprowadzono frazę: '{keyword}'. Kliknij przycisk powyżej, aby rozpocząć analizę.")
-    # else: komunikat z text_input placeholder wystarczy na początku
