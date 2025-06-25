@@ -15,7 +15,8 @@ import requests
 import re
 from trafilatura import extract
 import google.generativeai as genai
-from urllib.parse import urlencode as encode_query_params
+from urllib.parse import urlencode as encode_query_params # Może się przydać, ale DataForSEO używa JSON payload
+import json # Do tworzenia payloadu JSON dla DataForSEO
 
 # ==============================================================================
 # Krok 2: Konfiguracja strony Streamlit
@@ -30,13 +31,15 @@ st.markdown("Narzędzie do tworzenia kompletnych strategii contentowych na podst
 # ==============================================================================
 try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-    SCRAPINGBEE_API_KEY = st.secrets["SCRAPINGBEE_API_KEY"]
+    SCRAPINGBEE_API_KEY = st.secrets["SCRAPINGBEE_API_KEY"] # Nadal potrzebne do scrapowania treści stron
+    DATAFORSEO_LOGIN = st.secrets["DATAFORSEO_LOGIN"]
+    DATAFORSEO_PASSWORD = st.secrets["DATAFORSEO_PASSWORD"]
 
     genai.configure(api_key=GEMINI_API_KEY)
 
 except KeyError as e:
     missing_key = str(e).strip("'")
-    st.error(f"🛑 Błąd konfiguracji sekretów! Nie znaleziono wymaganego sekretu: {missing_key}. Upewnij się, że skonfigurowałeś przynajmniej GEMINI_API_KEY i SCRAPINGBEE_API_KEY w ustawieniach Streamlit.")
+    st.error(f"🛑 Błąd konfiguracji sekretów! Nie znaleziono wymaganego sekretu: {missing_key}. Upewnij się, że skonfigurowałeś GEMINI_API_KEY, SCRAPINGBEE_API_KEY, DATAFORSEO_LOGIN i DATAFORSEO_PASSWORD w ustawieniach Streamlit.")
     st.stop()
 except Exception as e:
     st.error(f"🛑 Wystąpił nieoczekiwany błąd podczas ładowania kluczy: {e}")
@@ -48,88 +51,78 @@ except Exception as e:
 # ==============================================================================
 
 @st.cache_data
-def get_top_10_google_results_with_scrapingbee(api_key_sb, query, num_results=10, country_code_google='pl', language_code_google='pl'):
-    """Pobiera wyniki wyszukiwania Google używając API ScrapingBee poprzez scrapowanie URL-a Google SERP."""
-
-    sanitized_query = query.strip()
-    if sanitized_query.endswith('?'):
-        sanitized_query = sanitized_query[:-1].strip()
-
-    google_search_params = {
-        'q': sanitized_query,
-        'hl': language_code_google,
-        'gl': country_code_google,
-        'num': str(num_results)
-    }
-    google_search_url = f"https://www.google.com/search?{encode_query_params(google_search_params)}"
-    st.write(f"Skonstruowany URL Google Search: {google_search_url}")
-
-    params_sb = {
-        'api_key': api_key_sb,
-        'url': google_search_url,
-        'custom_google': 'true',
-        'render_js': 'false',
-        # 'premium_proxy': 'true', # TEST 1: Spróbuj najpierw bez tego
+def get_top_10_google_results_with_dataforseo(login, password, query, num_results=10, location_code=2616, language_code='pl'):
+    """Pobiera wyniki wyszukiwania Google używając API DataForSEO (Live SERP endpoint)."""
+    
+    post_data = [
+        {
+            "keyword": query,
+            "location_code": location_code,
+            "language_code": language_code,
+            "depth": num_results  # 'depth' to liczba wyników do zwrócenia
+        }
+    ]
+    
+    headers = {
+        'Content-Type': 'application/json'
     }
     
-    # TEST 2: Jeśli TEST 1 zawiedzie, odkomentuj poniższą linię
-    params_sb['premium_proxy'] = 'true' 
-    # TEST 3: Jeśli TEST 2 zawiedzie, odkomentuj również poniższą linię
-    # params_sb['country_code'] = country_code_google
-
-
-    endpoint_url = 'https://app.scrapingbee.com/api/v1/'
-
+    # Endpoint dla "Standard Google SERP API - Live - Regular"
+    # Sprawdź aktualny endpoint w dokumentacji DataForSEO, jeśli ten nie działa.
+    endpoint_url = "https://api.dataforseo.com/v3/serp/google/organic/live/regular"
+    
     try:
-        st.write(f"Wysyłanie zapytania do ScrapingBee z parametrami: {params_sb}")
-        response = requests.get(endpoint_url, params=params_sb, timeout=90)
-        
-        if response.status_code == 500:
-            st.error(f"🛑 Otrzymano błąd 500 Internal Server Error od ScrapingBee. Surowa odpowiedź:")
-            st.text_area("Odpowiedź serwera (debug):", response.text, height=150)
-            return None
-
-        response.raise_for_status()
+        st.write(f"Wysyłanie zapytania do DataForSEO z payloadem: {json.dumps(post_data)}") # Debug
+        response = requests.post(
+            endpoint_url,
+            auth=(login, password), # Basic Authentication
+            headers=headers,
+            json=post_data, # Wysyłamy dane jako JSON
+            timeout=60
+        )
+        response.raise_for_status() # Rzuci wyjątek dla błędów HTTP (4xx, 5xx)
         data = response.json()
-        st.write(f"Odpowiedź JSON od ScrapingBee: {data}")
+        st.write(f"Odpowiedź JSON od DataForSEO: {data}") # Debug
 
-        if 'organic_results' in data and data['organic_results']:
+        if data.get("status_code") == 20000 and data.get("tasks") and data["tasks"][0].get("result") and data["tasks"][0]["result"][0].get("items"):
+            items = data["tasks"][0]["result"][0]["items"]
             results = []
-            for item in data['organic_results']:
-                title = item.get('title')
-                link = item.get('link')
-                if title and link:
-                    results.append({'title': title, 'link': link})
-                else:
-                    st.warning(f"Pominięto wynik z ScrapingBee z powodu braku tytułu lub linku: {item}")
+            for item in items:
+                if item.get("type") == "organic": # Interesują nas tylko wyniki organiczne
+                    title = item.get("title")
+                    link = item.get("url") # W DataForSEO link jest zazwyczaj pod kluczem 'url'
+                    if title and link:
+                        results.append({'title': title, 'link': link})
+                    else:
+                        st.warning(f"Pominięto wynik organiczny z DataForSEO z powodu braku tytułu lub linku: {item}")
             return results
-        elif 'error' in data:
-             st.warning(f"ScrapingBee zwróciło błąd w odpowiedzi JSON: {data.get('error_message', data['error'])}")
-             return []
         else:
-            st.warning(f"ScrapingBee nie zwróciło 'organic_results' dla zapytania (URL: {google_search_url}). Sprawdź odpowiedź JSON powyżej.")
+            status_message = data.get("status_message", "Nieznany błąd.")
+            tasks_error = ""
+            if data.get("tasks") and data["tasks"][0].get("status_message") != "Ok.":
+                tasks_error = f" Błąd zadania: {data['tasks'][0]['status_code']} - {data['tasks'][0]['status_message']}"
+
+            st.warning(f"DataForSEO API zwróciło nieoczekiwany status lub brak wyników: {status_message}{tasks_error}. Pełna odpowiedź powyżej.")
             return []
 
     except requests.exceptions.Timeout:
-        st.error(f"🛑 Przekroczono czas oczekiwania na odpowiedź od ScrapingBee dla URL: '{google_search_url}'")
+        st.error(f"🛑 Przekroczono czas oczekiwania na odpowiedź od DataForSEO dla zapytania: '{query}'")
         return None
     except requests.exceptions.RequestException as e:
-        safe_params_for_log = params_sb.copy()
-        safe_params_for_log['api_key'] = "REDACTED_API_KEY"
-        st.error(f"🛑 Błąd podczas komunikacji z API ScrapingBee: {e}. Parametry wysłane (z zredagowanym kluczem): {safe_params_for_log}")
+        st.error(f"🛑 Błąd podczas komunikacji z API DataForSEO: {e}")
         if hasattr(e, 'response') and e.response is not None:
-            st.text_area("Treść odpowiedzi błędu (debug):", e.response.text, height=150)
+            st.text_area("Treść odpowiedzi błędu DataForSEO (debug):", e.response.text, height=150)
         return None
-    except Exception as e:
-        st.error(f"🛑 Nieoczekiwany błąd podczas przetwarzania odpowiedzi z ScrapingBee (np. błąd JSON): {e}")
+    except Exception as e: # Np. błąd parsowania JSON
+        st.error(f"🛑 Nieoczekiwany błąd podczas przetwarzania odpowiedzi z DataForSEO: {e}")
         if 'response' in locals() and hasattr(response, 'text'):
-            st.text_area("Surowa odpowiedź (debug):", response.text, height=150)
+            st.text_area("Surowa odpowiedź DataForSEO (debug):", response.text, height=150)
         return None
 
 
 @st.cache_data
 def scrape_and_clean_content(url_to_scrape, scrapingbee_api_key):
-    """Pobiera i czyści treść ze strony używając ScrapingBee."""
+    """Pobiera i czyści treść ze strony używając ScrapingBee (bez zmian)."""
     try:
         response = requests.get(
             url='https://app.scrapingbee.com/api/v1/',
@@ -152,7 +145,7 @@ def scrape_and_clean_content(url_to_scrape, scrapingbee_api_key):
 
 @st.cache_data(show_spinner="AI analizuje treść...")
 def analyze_content_with_gemini(all_content, keyword_phrase):
-    """Analizuje zagregowaną treść i generuje raport z Gemini."""
+    """Analizuje zagregowaną treść i generuje raport z Gemini (bez zmian)."""
     if not all_content:
         return "Brak treści do analizy przez AI."
     prompt = f"""
@@ -197,7 +190,7 @@ Treść do analizy:
         return None
 
 def parse_report(report_text):
-    """Dzieli pełny raport na sekcje do wyświetlenia w zakładkach."""
+    """Dzieli pełny raport na sekcje do wyświetlenia w zakładkach (bez zmian)."""
     if not report_text: return {}
     sections = {}
     pattern = r"###\s*(?:\d+\.\s*)?(.*?)\n(.*?)(?=\n###\s*|$|\Z)"
@@ -219,21 +212,31 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         st.warning("Proszę wpisać frazę kluczową.")
         st.stop()
 
-    if 'SCRAPINGBEE_API_KEY' not in st.secrets or 'GEMINI_API_KEY' not in st.secrets:
-         st.error("Błąd: Klucze SCRAPINGBEE_API_KEY lub GEMINI_API_KEY nie są skonfigurowane w Streamlit Secrets.")
+    if 'SCRAPINGBEE_API_KEY' not in st.secrets or \
+       'GEMINI_API_KEY' not in st.secrets or \
+       'DATAFORSEO_LOGIN' not in st.secrets or \
+       'DATAFORSEO_PASSWORD' not in st.secrets:
+         st.error("Błąd: Nie wszystkie wymagane klucze API (ScrapingBee, Gemini, DataForSEO) są skonfigurowane w Streamlit Secrets.")
          st.stop()
 
     with st.spinner("Przeprowadzam pełny audyt... To może potrwać kilka minut."):
-        st.info("Etap 1/4: Pobieranie i filtrowanie wyników z Google (przez ScrapingBee)...")
+        st.info("Etap 1/4: Pobieranie i filtrowanie wyników z Google (przez DataForSEO)...")
         
-        # Wywołanie funkcji z domyślnymi parametrami dla Google (pl, pl)
-        top_results = get_top_10_google_results_with_scrapingbee(SCRAPINGBEE_API_KEY, keyword)
+        # Używamy nowej funkcji z danymi logowania DataForSEO
+        top_results = get_top_10_google_results_with_dataforseo(
+            DATAFORSEO_LOGIN, 
+            DATAFORSEO_PASSWORD, 
+            keyword,
+            num_results=10, # Można to też uczynić konfigurowalnym
+            location_code=2616, # Polska
+            language_code='pl'
+        )
 
-        if top_results is None:
-            st.error("Wystąpił krytyczny błąd podczas pobierania wyników z ScrapingBee. Audyt przerwany.")
+        if top_results is None: # Obsługa błędu krytycznego z API
+            st.error("Wystąpił krytyczny błąd podczas pobierania wyników z DataForSEO. Audyt przerwany.")
             st.stop()
         if not top_results:
-            st.error(f"Nie znaleziono żadnych wyników TOP 10 dla frazy: '{keyword}' przy użyciu ScrapingBee. Sprawdź logi powyżej dla szczegółów błędu od ScrapingBee.")
+            st.error(f"Nie znaleziono żadnych wyników organicznych TOP 10 dla frazy: '{keyword}' przy użyciu DataForSEO. Sprawdź logi powyżej dla szczegółów błędu od DataForSEO.")
             st.stop()
 
         BANNED_DOMAINS = [
@@ -256,13 +259,13 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
             display_title = result.get('title', result.get('link', f"Brak tytułu dla {result.get('link', 'nieznany URL')}"))
             st.write(f"{i}. [{display_title}]({result.get('link', '#')})")
 
-        st.info("Etap 2/4: Pobieranie treści ze stron przez Scraping API...")
+        st.info("Etap 2/4: Pobieranie treści ze stron przez Scraping API (ScrapingBee)...")
         all_articles_content, successful_sources = [], []
         progress_bar = st.progress(0)
         for i, result in enumerate(filtered_results):
              url = result.get('link')
              if url:
-                 content = scrape_and_clean_content(url, SCRAPINGBEE_API_KEY)
+                 content = scrape_and_clean_content(url, SCRAPINGBEE_API_KEY) # Nadal używamy ScrapingBee do treści
                  if content:
                      all_articles_content.append(content)
                      successful_sources.append({'title': result.get('title', 'Brak tytułu'), 'link': url})
@@ -270,11 +273,11 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
         progress_bar.empty()
 
         if not all_articles_content:
-            st.error("Nie udało się pobrać treści z żadnej ze stron. Sprawdź limity ScrapingBee, dostępność stron lub czy strony nie blokują scraperów.")
+            st.error("Nie udało się pobrać treści z żadnej ze stron przy użyciu ScrapingBee. Sprawdź limity, dostępność stron lub czy strony nie blokują scraperów.")
             st.stop()
         st.success(f"✅ Pomyślnie pobrano treści z {len(all_articles_content)} stron.")
 
-        st.info("Etap 3/4: Generowanie kompleksowego raportu przez AI...")
+        st.info("Etap 3/4: Generowanie kompleksowego raportu przez AI (Gemini)...")
         aggregated_content = "\n\n---\n\n".join(all_articles_content)
         full_report = analyze_content_with_gemini(aggregated_content, keyword)
 
