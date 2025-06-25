@@ -215,32 +215,17 @@ if st.button("🚀 Wygeneruj Kompleksowy Audyt SEO"):
 
         # ========================================================================
         # >>> POCZĄTEK ZMODYFIKOWANEJ LOGIKI WYSZUKIWANIA <<<
+        # Używamy frazy bezpośrednio, tak jak ją podał użytkownik
         # ========================================================================
-        search_mode_message = "" # Zmienna do przechowywania komunikatu o trybie wyszukiwania
-
-        # 1. Spróbuj wyszukać z dokładnym dopasowaniem
-        exact_query = f'"{keyword}"'
-        st.info(f"Próba wyszukiwania dokładnej frazy: {exact_query}")
-        top_results = get_top_10_results(SEARCH_API_KEY, SEARCH_ENGINE_ID, exact_query)
-
-        search_mode_message = f"Wyszukiwano dokładną frazę: `{exact_query}`."
-
-        # 2. Jeśli dokładne wyszukiwanie nie dało wyników, spróbuj wyszukiwania ogólnego
-        if not top_results:
-            st.warning(f"Nie znaleziono wyników dla dokładnej frazy: '{exact_query}'. Próbuję wyszukiwania ogólnego dla frazy: '{keyword}'...")
-            top_results = get_top_10_results(SEARCH_API_KEY, SEARCH_ENGINE_ID, keyword)
-            search_mode_message = f"Wyszukiwano ogólną frazę: `{keyword}` (po niepowodzeniu wyszukiwania dokładnego)."
+        st.info(f"Wyszukiwanie dla wprowadzonej frazy: '{keyword}'")
+        top_results = get_top_10_results(SEARCH_API_KEY, SEARCH_ENGINE_ID, keyword)
         # ========================================================================
         # >>> KONIEC ZMODYFIKOWANEJ LOGIKI WYSZUKIWANIA <<<
         # ========================================================================
 
         if not top_results:
-            st.error(f"Nie znaleziono żadnych wyników TOP 10 ani dla DOKŁADNEJ frazy '{keyword}' ani dla frazy OGÓLNEJ. Spróbuj użyć innej frazy.")
+            st.error(f"Nie znaleziono żadnych wyników TOP 10 dla wprowadzonej frazy: '{keyword}'. Spróbuj użyć innej frazy lub sprawdź, czy fraza jest poprawna.")
             st.stop()
-
-        # Wyświetl informację o aktualnie używanym trybie wyszukiwania (po potencjalnej zmianie)
-        st.info(search_mode_message)
-
 
         # Filtrowanie wyników (jak w Twoim kodzie)
         # Rozszerzona lista domen do banowania
